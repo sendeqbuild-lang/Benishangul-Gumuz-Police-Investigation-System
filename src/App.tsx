@@ -26,7 +26,10 @@ import {
   ShieldCheck,
   Fingerprint,
   Zap,
-  Lock
+  Lock,
+  BarChart4,
+  PieChart,
+  FileBarChart
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { transcribeAndTranslateAudio } from './lib/gemini';
@@ -55,7 +58,8 @@ import {
   orderBy, 
   serverTimestamp,
   addDoc,
-  where
+  where,
+  deleteDoc
 } from 'firebase/firestore';
 
 // Types
@@ -130,6 +134,18 @@ const translations = {
     statementReview: "Statement Review",
     captureArchive: "Capture Archive",
     establish: "Establishing secure connection to regional node...",
+    reports: "Statistical Reports",
+    totalCases: "Total Cases",
+    witnesses: "Witnesses",
+    suspects: "Suspects",
+    complainants: "Complainants",
+    caseStatusStats: "Case Status Distribution",
+    languageStats: "Language Distribution",
+    generateReport: "Generate Official Report",
+    printReport: "Print Statistics Report",
+    recordingTypes: "Recording Types",
+    videoRecords: "Video Records",
+    audioRecords: "Audio Records",
     witness: "Witness",
     suspect: "Suspect",
     complainant: "Complainant",
@@ -189,6 +205,18 @@ const translations = {
     statementReview: "የቃል ምርመራ ክትትል",
     captureArchive: "መረጃውን አትም/አስቀምጥ",
     establish: "ከክልል ማእከል ጋር ግንኙነት እየተፈጠረ ነው...",
+    reports: "የስታቲስቲክስ ሪፖርቶች",
+    totalCases: "ጠቅላላ መዝገቦች",
+    witnesses: "ምስክሮች",
+    suspects: "ተጠርጣሪዎች",
+    complainants: "ከሳሾች",
+    caseStatusStats: "የመዝገቦች ሁኔታ ስርጭት",
+    languageStats: "የቋንቋዎች ስርጭት",
+    generateReport: "ይፋዊ ሪፖርት አውጣ",
+    printReport: "የስታቲስቲክስ ሪፖርት አትም",
+    recordingTypes: "የመቅጃ አይነቶች",
+    videoRecords: "የቪዲዮ ቅጂዎች",
+    audioRecords: "የድምፅ ቅጂዎች",
     witness: "ምስክር",
     suspect: "ተጠርጣሪ",
     complainant: "ከሳሽ",
@@ -217,7 +245,7 @@ export default function App() {
   // App State
   const [uiLanguage, setUiLanguage] = useState<'EN' | 'AM'>('AM');
   const t = translations[uiLanguage];
-  const [mode, setMode] = useState<'Investigator' | 'Supervisor' | 'Admin'>('Investigator');
+  const [mode, setMode] = useState<'Investigator' | 'Supervisor' | 'Admin' | 'Reports'>('Investigator');
   const [isRecording, setIsRecording] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [recordCount, setRecordCount] = useState(0); // Tracking repeat recordings
@@ -239,8 +267,10 @@ export default function App() {
   const [allCases, setAllCases] = useState<CaseRecord[]>([]);
   const [allStaff, setAllStaff] = useState<StaffProfile[]>([]);
   const [selectedCase, setSelectedCase] = useState<CaseRecord | null>(null);
+  const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [activePrintId, setActivePrintId] = useState<'case' | 'stats'>('case');
 
   // Admin Form State
   const [newStaff, setNewStaff] = useState({
@@ -361,6 +391,22 @@ export default function App() {
     );
   });
 
+  const stats = {
+    total: allCases.length,
+    finalized: allCases.filter(c => c.status === 'Finalized').length,
+    drafts: allCases.filter(c => c.status === 'Draft').length,
+    recording: allCases.filter(c => c.status === 'Recording' || c.status === 'Processing').length,
+    witnesses: allCases.filter(c => c.personType === 'Witness').length,
+    suspects: allCases.filter(c => c.personType === 'Suspect').length,
+    complainants: allCases.filter(c => c.personType === 'Complainant').length,
+    video: allCases.filter(c => (c as any).hasVideo).length,
+    audio: allCases.filter(c => !(c as any).hasVideo).length,
+    languages: allCases.reduce((acc: any, c) => {
+      acc[c.language] = (acc[c.language] || 0) + 1;
+      return acc;
+    }, {})
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -437,7 +483,6 @@ export default function App() {
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
 
-      // Create or update doc in Firestore
       let docId = currentCaseDocId;
       if (!docId) {
         const docRef = await addDoc(collection(db, 'cases'), {
@@ -536,6 +581,7 @@ export default function App() {
           updatedAt: serverTimestamp()
         });
         setCaseStatus('Finalized');
+        setActivePrintId('case');
         setTimeout(() => window.print(), 500);
       } catch (err) {
         console.error("Finalization error:", err);
@@ -560,26 +606,59 @@ export default function App() {
 
   const handleCreateStaff = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newStaff.email || !newStaff.fullName || !newStaff.password) return;
+    if (!newStaff.email || !newStaff.fullName) return;
     
     try {
-      // Create user in Firebase Auth using secondary app to avoid logging out admin
-      const { secondaryAuth } = await import('./lib/firebase');
-      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, newStaff.email, newStaff.password);
-      
-      // Store profile in Firestore (exclude password)
-      const { password, ...staffData } = newStaff;
-      await setDoc(doc(db, 'users', userCredential.user.uid), {
-        ...staffData,
-        createdAt: serverTimestamp()
-      });
-
+      if (editingStaffId) {
+        await updateDoc(doc(db, 'users', editingStaffId), {
+          fullName: newStaff.fullName,
+          email: newStaff.email,
+          phone: newStaff.phone,
+          role: newStaff.role,
+          userType: newStaff.userType,
+          updatedAt: serverTimestamp()
+        });
+        setEditingStaffId(null);
+        alert("የመዝገብ መረጃው በትክክል ተስተካክሏል! (Staff profile updated successfully)");
+      } else {
+        if (!newStaff.password) return;
+        const { secondaryAuth } = await import('./lib/firebase');
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, newStaff.email, newStaff.password);
+        
+        const { password, ...staffData } = newStaff;
+        await setDoc(doc(db, 'users', userCredential.user.uid), {
+          ...staffData,
+          createdAt: serverTimestamp()
+        });
+        alert("መርማሪው በትክክል ተመዝግቧል! (Officer registered successfully)");
+      }
       setNewStaff({ fullName: '', email: '', phone: '', role: '', password: '', userType: 'Investigator' });
-      alert("መርማሪው በትክክል ተመዝግቧል! (Officer registered successfully)");
     } catch (err: any) {
-      console.error("Error creating staff:", err);
-      setError("Staff registration failed: " + err.message);
+      console.error("Error managing staff:", err);
+      setError("Staff operation failed: " + err.message);
     }
+  };
+
+  const handleDeleteStaff = async (staffId: string) => {
+    if (!window.confirm("መርማሪውን ለማጥፋት እርግጠኛ ነዎት? (Are you sure you want to delete this staff?)")) return;
+    try {
+      await deleteDoc(doc(db, 'users', staffId));
+      alert("መርማሪው በትክክል ተሰርዟል! (Staff deleted successfully)");
+    } catch (err: any) {
+      setError("Delete failed: " + err.message);
+    }
+  };
+
+  const handleEditStaff = (staff: StaffProfile) => {
+    setNewStaff({
+      fullName: staff.fullName,
+      email: staff.email,
+      phone: staff.phone || '',
+      role: staff.role || '',
+      password: '',
+      userType: staff.userType
+    });
+    setEditingStaffId(staff.id);
   };
 
   if (loadingApp) {
@@ -761,6 +840,12 @@ export default function App() {
                 >
                   {t.admin}
                 </button>
+                <button 
+                  onClick={() => setMode('Reports')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${mode === 'Reports' ? 'bg-indigo-500 text-white shadow' : 'text-blue-200 hover:text-white'}`}
+                >
+                  {t.reports}
+                </button>
               </>
             )}
           </div>
@@ -781,7 +866,128 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto w-full px-4 mt-8 no-print flex-1">
-        {mode === 'Admin' ? (
+        {mode === 'Reports' ? (
+          /* Reports Dashboard */
+          <div className="space-y-8 animate-in fade-in duration-500">
+            <div className="flex justify-between items-center bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100">
+              <div>
+                <h2 className="text-3xl font-black text-slate-800 flex items-center gap-3">
+                  <BarChart4 className="w-8 h-8 text-indigo-600" />
+                  {t.reports}
+                </h2>
+                <p className="text-slate-500 font-medium">Automatic system-wide statistical accumulation and analysis</p>
+              </div>
+              <button 
+                onClick={() => {
+                  setActivePrintId('stats');
+                  setTimeout(() => window.print(), 300);
+                }}
+                className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <Printer className="w-5 h-5" />
+                {t.printReport}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {[
+                { label: t.totalCases, val: stats.total, color: 'text-police-blue', bg: 'bg-blue-50', icon: FileText },
+                { label: t.witnesses, val: stats.witnesses, color: 'text-indigo-600', bg: 'bg-indigo-50', icon: User },
+                { label: t.suspects, val: stats.suspects, color: 'text-red-600', bg: 'bg-red-50', icon: AlertCircle },
+                { label: t.complainants, val: stats.complainants, color: 'text-amber-600', bg: 'bg-amber-50', icon: Shield },
+              ].map((card, i) => (
+                <div key={i} className="card p-6 flex items-center gap-5">
+                  <div className={`w-14 h-14 ${card.bg} rounded-2xl flex items-center justify-center`}>
+                    <card.icon className={`w-7 h-7 ${card.color}`} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{card.label}</p>
+                    <p className="text-3xl font-black text-slate-800 leading-none mt-1">{card.val}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="lg:col-span-1 card p-8">
+                <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+                  <PieChart className="w-5 h-5 text-indigo-500" />
+                  {t.caseStatusStats}
+                </h3>
+                <div className="space-y-6">
+                  {[
+                    { label: 'Finalized', val: stats.finalized, color: 'bg-green-500', bg: 'bg-green-100' },
+                    { label: 'Drafts', val: stats.drafts, color: 'bg-blue-500', bg: 'bg-blue-100' },
+                    { label: 'Active/Processing', val: stats.recording, color: 'bg-amber-500', bg: 'bg-amber-100' },
+                  ].map((item, i) => (
+                    <div key={i}>
+                      <div className="flex justify-between text-xs font-bold mb-2">
+                         <span className="text-slate-600">{item.label}</span>
+                         <span className="text-slate-900">{item.val} ({Math.round(item.val / (stats.total || 1) * 100)}%)</span>
+                      </div>
+                      <div className="w-full h-2 rounded-full bg-slate-50 overflow-hidden">
+                        <div 
+                          className={`h-full ${item.color}`} 
+                          style={{ width: `${(item.val / (stats.total || 1)) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="lg:col-span-1 card p-8">
+                <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+                  <Video className="w-5 h-5 text-indigo-500" />
+                  {t.recordingTypes}
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-center">
+                    <Video className="w-8 h-8 text-blue-600 mx-auto mb-3" />
+                    <p className="text-2xl font-black text-slate-800">{stats.video}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">{t.videoRecords}</p>
+                  </div>
+                  <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-center">
+                    <Mic className="w-8 h-8 text-amber-600 mx-auto mb-3" />
+                    <p className="text-2xl font-black text-slate-800">{stats.audio}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">{t.audioRecords}</p>
+                  </div>
+                </div>
+                <div className="mt-8 pt-8 border-t border-slate-100">
+                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Regional Node Activity</h4>
+                   <div className="flex items-center gap-4">
+                      <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
+                      <p className="text-xs font-bold text-slate-600">All regional systems operational</p>
+                   </div>
+                </div>
+              </div>
+
+              <div className="lg:col-span-1 card p-8">
+                <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+                  <Languages className="w-5 h-5 text-indigo-500" />
+                  {t.languageStats}
+                </h3>
+                <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
+                   {Object.entries(stats.languages).length > 0 ? (
+                     Object.entries(stats.languages).map(([lang, count]) => (
+                       <div key={lang} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
+                         <span className="text-sm font-bold text-slate-700">{lang}</span>
+                         <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-police-blue">{count as number}</span>
+                            <div className="w-12 h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                               <div className="h-full bg-police-blue" style={{ width: `${((count as number) / stats.total) * 100}%` }} />
+                            </div>
+                         </div>
+                       </div>
+                     ))
+                   ) : (
+                     <p className="text-xs text-slate-400 text-center py-10 italic">No data yet</p>
+                   )}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : mode === 'Admin' ? (
           /* Admin Dashboard */
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-4">
@@ -1281,8 +1487,8 @@ export default function App() {
                       </div>
                       <button 
                         onClick={() => {
-                          const docPrint = document.getElementById('printable-report');
-                          if (docPrint) window.print();
+                          setActivePrintId('case');
+                          setTimeout(() => window.print(), 300);
                         }}
                         className="btn-primary bg-white text-police-blue hover:bg-slate-100 flex items-center gap-2"
                       >
@@ -1298,8 +1504,8 @@ export default function App() {
         )}
       </main>
 
-      {/* Hidden Printable Official Document */}
-      <div id="printable-report" className="hidden print:block font-serif text-black p-0 leading-relaxed">
+      {/* Hidden Printable Official Document (Case) */}
+      <div id="printable-report" className={`${activePrintId === 'case' ? 'print:block' : 'print:hidden'} hidden font-serif text-black p-0 leading-relaxed`}>
         <div className="w-[190mm] mx-auto min-h-screen relative p-[15mm]">
           {/* Header */}
           <div className="text-center mb-10 border-b-2 border-black pb-8 relative">
@@ -1393,6 +1599,50 @@ export default function App() {
                  <span>TIMESTAMP: {new Date().toISOString()}</span>
               </div>
           </div>
+        </div>
+      </div>
+
+      {/* Hidden Printable Official Document (Statistics) */}
+      <div id="printable-stats" className={`${activePrintId === 'stats' ? 'print:block' : 'print:hidden'} hidden font-serif text-black p-10 leading-relaxed`}>
+        <div className="text-center mb-10 border-b-2 border-black pb-8">
+           <h1 className="text-3xl font-black">{t.title}</h1>
+           <h2 className="text-xl font-bold mt-2 uppercase">{t.reports}</h2>
+           <p className="text-xs mt-4">Generated on: {new Date().toLocaleString()}</p>
+        </div>
+        
+        <div className="grid grid-cols-2 gap-8 mb-10">
+           <div className="border border-black p-6">
+              <h3 className="font-bold border-b border-black mb-4 uppercase">{t.totalCases}</h3>
+              <p className="text-4xl font-black">{stats.total}</p>
+           </div>
+           <div className="border border-black p-6">
+              <h3 className="font-bold border-b border-black mb-4 uppercase">{t.recordingTypes}</h3>
+              <p className="text-sm">Video: {stats.video}</p>
+              <p className="text-sm">Audio: {stats.audio}</p>
+           </div>
+        </div>
+
+        <div className="border border-black p-6 mb-10">
+           <h3 className="font-bold border-b border-black mb-4 uppercase">{t.caseStatusStats}</h3>
+           <p className="text-sm">Finalized: {stats.finalized}</p>
+           <p className="text-sm">Drafts: {stats.drafts}</p>
+           <p className="text-sm">Active: {stats.recording}</p>
+        </div>
+
+        <div className="border border-black p-6 mb-10">
+           <h3 className="font-bold border-b border-black mb-4 uppercase">Regional Staffing</h3>
+           <p className="text-sm">Total Personnel: {allStaff.length}</p>
+        </div>
+
+        <div className="mt-20 flex justify-between">
+           <div className="text-center">
+              <div className="w-40 h-px bg-black mb-2" />
+              <p className="text-xs font-bold uppercase">System Administrator</p>
+           </div>
+           <div className="text-center">
+              <div className="w-40 h-px bg-black mb-2" />
+              <p className="text-xs font-bold uppercase">Command Center Seal</p>
+           </div>
         </div>
       </div>
     </div>
