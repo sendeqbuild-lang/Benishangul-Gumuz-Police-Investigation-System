@@ -1,9 +1,24 @@
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiInstance: GoogleGenAI | null = null;
+
+function getAI() {
+  if (!aiInstance) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      // In development, this might happen if env vars aren't loaded yet.
+      // But we shouldn't crash at the top level.
+      console.warn("GEMINI_API_KEY is not set. Gemini features will not work.");
+    }
+    aiInstance = new GoogleGenAI({ apiKey: apiKey || "" });
+  }
+  return aiInstance;
+}
 
 export async function transcribeAndTranslateAudio(audioBase64: string, mimeType: string, sourceLanguage: string) {
   try {
+    const ai = getAI();
+    
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
