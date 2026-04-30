@@ -29,7 +29,12 @@ import {
   Lock,
   BarChart4,
   PieChart,
-  FileBarChart
+  FileBarChart,
+  Menu,
+  X,
+  ChevronLeft,
+  UserCheck,
+  Users
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { transcribeAndTranslateAudio } from './lib/gemini';
@@ -116,6 +121,7 @@ const translations = {
     history: "My Session History",
     noHistory: "No active investigations.",
     finalize: "Finalize & Print",
+    back: "Back",
     processing: "AI Translation in Progress...",
     processingSub: "Translating to Amharic...",
     placeholder: "Automatic translation will appear here...",
@@ -187,6 +193,7 @@ const translations = {
     history: "የቅርብ ጊዜ ስራዎች",
     noHistory: "ምንም ንቁ ምርመራ የለም።",
     finalize: "አረጋግጥና አትም",
+    back: "ተመለስ",
     processing: "በአርቴፊሻል ኢንተለጀንስ ትርጉም እየተሰራ ነው...",
     processingSub: "ወደ አማርኛ እየተተረጎመ ነው...",
     placeholder: "አውቶማቲክ ትርጉሙ እዚህ ይታያል...",
@@ -244,6 +251,7 @@ export default function App() {
 
   // App State
   const [uiLanguage, setUiLanguage] = useState<'EN' | 'AM'>('AM');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const t = translations[uiLanguage];
   const [mode, setMode] = useState<'Investigator' | 'Supervisor' | 'Admin' | 'Reports'>('Investigator');
   const [isRecording, setIsRecording] = useState(false);
@@ -793,100 +801,175 @@ export default function App() {
 
       {/* Header */}
       <header className="bg-police-blue text-white shadow-lg no-print sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center p-2">
-               <Shield className="w-8 h-8 text-police-blue" />
+        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center relative gap-4">
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => { 
+                if (mode !== 'Investigator') setMode('Investigator'); 
+                else if (selectedCase) setSelectedCase(null); 
+                else if (currentCaseDocId) setCurrentCaseDocId(null);
+              }}
+              className={`p-2 bg-white/10 rounded-xl md:hidden ${(mode === 'Investigator' && !selectedCase && !currentCaseDocId) ? 'hidden' : 'block'}`}
+            >
+              <ChevronLeft className="w-5 h-5 text-white" />
+            </button>
+            <div className="w-10 h-10 md:w-12 md:h-12 bg-white rounded-2xl flex items-center justify-center shadow-lg transform -rotate-3 border-2 border-police-blue/20">
+              <Shield className="w-6 h-6 md:w-8 md:h-8 text-police-blue" />
             </div>
             <div>
-              <h1 className="text-lg md:text-xl font-bold uppercase tracking-tight">{t.title}</h1>
-              <p className="text-blue-200 text-xs font-ethiopic">{t.subtitle}</p>
+              <h1 className="text-lg md:text-2xl font-black text-white tracking-tighter leading-none">{t.title}</h1>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                <p className="text-[9px] md:text-xs font-bold text-blue-100 uppercase tracking-widest leading-none">Regional Node Active</p>
+              </div>
             </div>
           </div>
 
-          <div className="flex bg-blue-900/50 p-1 rounded-lg">
+          <div className="hidden md:flex items-center bg-white/10 p-1.5 rounded-2xl border border-white/15 backdrop-blur-md">
             <button 
-              onClick={() => setUiLanguage('AM')}
-              className={`px-2 py-1 rounded text-[10px] font-bold transition-all ${uiLanguage === 'AM' ? 'bg-white text-police-blue' : 'text-blue-200'}`}
+              onClick={() => setUiLanguage(uiLanguage === 'EN' ? 'AM' : 'EN')}
+              className="flex items-center gap-2.5 px-4 py-2 hover:bg-white/10 rounded-xl transition-all font-bold text-white text-xs group"
             >
-              አማ
+              <Languages className="w-4 h-4 text-blue-200 group-hover:text-white" />
+              {uiLanguage === 'EN' ? 'አማርኛ' : 'English'}
             </button>
-            <button 
-              onClick={() => setUiLanguage('EN')}
-              className={`px-2 py-1 rounded text-[10px] font-bold transition-all ${uiLanguage === 'EN' ? 'bg-white text-police-blue' : 'text-blue-200'}`}
-            >
-              EN
-            </button>
-          </div>
-
-          <div className="flex bg-blue-900/50 p-1 rounded-lg">
-            <button 
+            <div className="w-px h-5 bg-white/10 mx-2" />
+            <button
               onClick={() => setMode('Investigator')}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${mode === 'Investigator' ? 'bg-white text-police-blue shadow' : 'text-blue-200 hover:text-white'}`}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${mode === 'Investigator' ? 'bg-white text-police-blue' : 'text-white hover:bg-white/10'}`}
             >
               {t.investigator}
             </button>
             {isAdmin && (
               <>
-                <button 
+                <button
                   onClick={() => setMode('Supervisor')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${mode === 'Supervisor' ? 'bg-white text-police-blue shadow' : 'text-blue-200 hover:text-white'}`}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${mode === 'Supervisor' ? 'bg-white text-police-blue' : 'text-white hover:bg-white/10'}`}
                 >
                   {t.supervisor}
                 </button>
-                <button 
+                <button
                   onClick={() => setMode('Admin')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${mode === 'Admin' ? 'bg-amber-400 text-black shadow' : 'text-blue-200 hover:text-white'}`}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${mode === 'Admin' ? 'bg-white text-police-blue' : 'text-white hover:bg-white/10'}`}
                 >
                   {t.admin}
                 </button>
-                <button 
+                <button
                   onClick={() => setMode('Reports')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${mode === 'Reports' ? 'bg-indigo-500 text-white shadow' : 'text-blue-200 hover:text-white'}`}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${mode === 'Reports' ? 'bg-white text-police-blue' : 'text-white hover:bg-white/10'}`}
                 >
                   {t.reports}
                 </button>
               </>
             )}
+            <div className="w-px h-5 bg-white/10 mx-2" />
+            <button
+              onClick={handleLogout}
+              className="p-2.5 hover:bg-red-500/20 text-red-200 hover:text-white rounded-xl transition-all"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
 
-          <div className="flex items-center gap-4">
-             <div className="text-right hidden md:block">
-               <p className="text-sm font-semibold">{user.displayName || user.email}</p>
-               <p className="text-[10px] text-blue-300 uppercase tracking-tighter">{isAdmin ? 'Regional Admin' : 'Investigator'}</p>
-             </div>
-             <button 
-              onClick={handleLogout}
-              className="p-2 hover:bg-blue-800 rounded-full transition-colors text-blue-200 hover:text-white"
-             >
-               <LogOut className="w-5 h-5" />
-             </button>
-          </div>
+          <button 
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            className="md:hidden p-2 text-white bg-white/10 rounded-xl"
+          >
+            {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+
+          <AnimatePresence>
+            {isMenuOpen && (
+              <motion.div 
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="absolute top-[100%] left-0 right-0 bg-police-blue p-4 flex flex-col gap-2 z-50 md:hidden border-t border-white/10 shadow-2xl"
+              >
+                <button 
+                  onClick={() => { setMode('Investigator'); setIsMenuOpen(false); }}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold ${mode === 'Investigator' ? 'bg-white text-police-blue' : 'text-white hover:bg-white/10'}`}
+                >
+                  <FileText className="w-5 h-5" />
+                  {t.investigator}
+                </button>
+                {isAdmin && (
+                  <>
+                    <button 
+                      onClick={() => { setMode('Supervisor'); setIsMenuOpen(false); }}
+                      className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold ${mode === 'Supervisor' ? 'bg-white text-police-blue' : 'text-white hover:bg-white/10'}`}
+                    >
+                      <UserCheck className="w-5 h-5" />
+                      {t.supervisor}
+                    </button>
+                    <button 
+                      onClick={() => { setMode('Admin'); setIsMenuOpen(false); }}
+                      className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold ${mode === 'Admin' ? 'bg-white text-police-blue' : 'text-white hover:bg-white/10'}`}
+                    >
+                      <Users className="w-5 h-5" />
+                      {t.admin}
+                    </button>
+                    <button 
+                      onClick={() => { setMode('Reports'); setIsMenuOpen(false); }}
+                      className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold ${mode === 'Reports' ? 'bg-white text-police-blue' : 'text-white hover:bg-white/10'}`}
+                    >
+                      <BarChart4 className="w-5 h-5" />
+                      {t.reports}
+                    </button>
+                  </>
+                )}
+                <div className="h-px bg-white/10 my-2" />
+                <button 
+                  onClick={() => { setUiLanguage(uiLanguage === 'EN' ? 'AM' : 'EN'); setIsMenuOpen(false); }}
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-white hover:bg-white/10"
+                >
+                  <Languages className="w-5 h-5" />
+                  {uiLanguage === 'EN' ? 'አማርኛ' : 'English'}
+                </button>
+                <button 
+                  onClick={() => { handleLogout(); setIsMenuOpen(false); }}
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-red-300 hover:bg-red-500/10"
+                >
+                  <LogOut className="w-5 h-5" />
+                  Sign Out
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto w-full px-4 mt-8 no-print flex-1">
+      <main className="max-w-7xl mx-auto w-full px-4 mt-4 md:mt-8 no-print flex-1 mb-10">
         {mode === 'Reports' ? (
           /* Reports Dashboard */
           <div className="space-y-8 animate-in fade-in duration-500">
-            <div className="flex justify-between items-center bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-100 gap-6">
               <div>
-                <h2 className="text-3xl font-black text-slate-800 flex items-center gap-3">
+                <h2 className="text-2xl md:text-3xl font-black text-slate-800 flex items-center gap-3">
                   <BarChart4 className="w-8 h-8 text-indigo-600" />
                   {t.reports}
                 </h2>
-                <p className="text-slate-500 font-medium">Automatic system-wide statistical accumulation and analysis</p>
+                <p className="text-slate-500 font-medium text-sm md:text-base">Automatic system-wide statistical accumulation and analysis</p>
               </div>
-              <button 
-                onClick={() => {
-                  setActivePrintId('stats');
-                  setTimeout(() => window.print(), 300);
-                }}
-                className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all hover:scale-[1.02] active:scale-[0.98]"
-              >
-                <Printer className="w-5 h-5" />
-                {t.printReport}
-              </button>
+              <div className="flex items-center gap-3 w-full md:w-auto">
+                <button 
+                  onClick={() => setMode('Investigator')}
+                  className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-slate-100 text-slate-700 rounded-2xl font-bold transition-all"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  {t.back}
+                </button>
+                <button 
+                  onClick={() => {
+                    setActivePrintId('stats');
+                    setTimeout(() => window.print(), 300);
+                  }}
+                  className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all"
+                >
+                  <Printer className="w-5 h-5" />
+                  {t.printReport}
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -989,105 +1072,116 @@ export default function App() {
           </div>
         ) : mode === 'Admin' ? (
           /* Admin Dashboard */
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            <div className="lg:col-span-4">
-              <div className="card p-6">
-                <h2 className="text-lg font-bold mb-6 flex items-center gap-2">
-                  <User className="w-5 h-5 text-police-blue" />
-                  {t.addInvestigator}
-                </h2>
-                <form onSubmit={handleCreateStaff} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">{t.fullName}</label>
-                    <input 
-                      type="text" 
-                      required
-                      className="input-field" 
-                      value={newStaff.fullName}
-                      onChange={(e) => setNewStaff({...newStaff, fullName: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">{t.email}</label>
-                    <input 
-                      type="email" 
-                      required
-                      className="input-field" 
-                      value={newStaff.email}
-                      onChange={(e) => setNewStaff({...newStaff, email: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">{t.phone}</label>
-                    <input 
-                      type="text" 
-                      className="input-field" 
-                      value={newStaff.phone}
-                      onChange={(e) => setNewStaff({...newStaff, phone: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">{t.rank}</label>
-                    <input 
-                      type="text" 
-                      className="input-field" 
-                      value={newStaff.role}
-                      onChange={(e) => setNewStaff({...newStaff, role: e.target.value})}
-                      placeholder="e.g. Major Detective"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">{t.accPassword}</label>
-                    <input 
-                      type="text" 
-                      required
-                      className="input-field" 
-                      value={newStaff.password}
-                      onChange={(e) => setNewStaff({...newStaff, password: e.target.value})}
-                      placeholder="Create temporary password"
-                    />
-                  </div>
-                  <button type="submit" className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 text-white font-bold py-3 rounded-xl hover:shadow-xl transition-all active:scale-[0.98]">{t.register}</button>
-                </form>
-              </div>
+          <>
+            <div className="flex flex-col md:flex-row gap-6 mb-6">
+              <button 
+                onClick={() => setMode('Investigator')}
+                className="md:hidden flex items-center gap-2 px-4 py-2 bg-white rounded-xl text-sm font-bold text-slate-600 shadow-sm border border-slate-100"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                {t.back}
+              </button>
             </div>
-            <div className="lg:col-span-8">
-              <div className="card p-6">
-                <h2 className="text-lg font-bold mb-6 flex items-center gap-2">
-                  <Shield className="w-5 h-5 text-police-blue" />
-                  {t.team}
-                </h2>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="text-xs text-slate-400 uppercase border-b border-slate-100">
-                        <th className="px-4 py-2">{t.name}</th>
-                        <th className="px-4 py-2">{t.email}</th>
-                        <th className="px-4 py-2">{t.rank}</th>
-                        <th className="px-4 py-2">{t.joined}</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {allStaff.map(s => (
-                        <tr key={s.id} className="text-sm">
-                          <td className="px-4 py-3 font-bold">{s.fullName}</td>
-                          <td className="px-4 py-3 text-slate-500">{s.email}</td>
-                          <td className="px-4 py-3"><span className="px-2 py-0.5 bg-blue-50 text-police-blue rounded-md text-xs font-bold">{s.role || 'Officer'}</span></td>
-                          <td className="px-4 py-3 text-xs text-slate-400">Recent</td>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              <div className="lg:col-span-4">
+                <div className="card p-6">
+                  <h2 className="text-lg font-bold mb-6 flex items-center gap-2">
+                    <User className="w-5 h-5 text-police-blue" />
+                    {t.addInvestigator}
+                  </h2>
+                  <form onSubmit={handleCreateStaff} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">{t.fullName}</label>
+                      <input 
+                        type="text" 
+                        required
+                        className="input-field" 
+                        value={newStaff.fullName}
+                        onChange={(e) => setNewStaff({...newStaff, fullName: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">{t.email}</label>
+                      <input 
+                        type="email" 
+                        required
+                        className="input-field" 
+                        value={newStaff.email}
+                        onChange={(e) => setNewStaff({...newStaff, email: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">{t.phone}</label>
+                      <input 
+                        type="text" 
+                        className="input-field" 
+                        value={newStaff.phone}
+                        onChange={(e) => setNewStaff({...newStaff, phone: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">{t.rank}</label>
+                      <input 
+                        type="text" 
+                        className="input-field" 
+                        value={newStaff.role}
+                        onChange={(e) => setNewStaff({...newStaff, role: e.target.value})}
+                        placeholder="e.g. Major Detective"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">{t.accPassword}</label>
+                      <input 
+                        type="text" 
+                        required
+                        className="input-field" 
+                        value={newStaff.password}
+                        onChange={(e) => setNewStaff({...newStaff, password: e.target.value})}
+                        placeholder="Create temporary password"
+                      />
+                    </div>
+                    <button type="submit" className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 text-white font-bold py-3 rounded-xl hover:shadow-xl transition-all active:scale-[0.98]">{t.register}</button>
+                  </form>
+                </div>
+              </div>
+              <div className="lg:col-span-8">
+                <div className="card p-6">
+                  <h2 className="text-lg font-bold mb-6 flex items-center gap-2">
+                    <Shield className="w-5 h-5 text-police-blue" />
+                    {t.team}
+                  </h2>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="text-xs text-slate-400 uppercase border-b border-slate-100">
+                          <th className="px-4 py-2">{t.name}</th>
+                          <th className="px-4 py-2">{t.email}</th>
+                          <th className="px-4 py-2">{t.rank}</th>
+                          <th className="px-4 py-2">{t.joined}</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {allStaff.map(s => (
+                          <tr key={s.id} className="text-sm">
+                            <td className="px-4 py-3 font-bold">{s.fullName}</td>
+                            <td className="px-4 py-3 text-slate-500">{s.email}</td>
+                            <td className="px-4 py-3"><span className="px-2 py-0.5 bg-blue-50 text-police-blue rounded-md text-xs font-bold">{s.role || 'Officer'}</span></td>
+                            <td className="px-4 py-3 text-xs text-slate-400">Recent</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          </>
         ) : mode === 'Investigator' ? (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8">
             {/* Left Column: Form & Controls */}
-            <div className="lg:col-span-4 space-y-6">
-              <div className="card p-6">
-                <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+            <div className={`lg:col-span-4 space-y-6 ${currentCaseDocId ? 'hidden lg:block' : 'block'}`}>
+              <div className="card p-5 md:p-6">
+                <h3 className="text-base md:text-lg font-bold mb-4 flex items-center gap-2">
                   <FileText className="w-5 h-5 text-police-blue" />
                   {t.testimonyInfo}
                 </h3>
@@ -1265,8 +1359,8 @@ export default function App() {
             </div>
 
             {/* Right Column: Transcription/Translation */}
-            <div className="lg:col-span-8 space-y-6">
-              <div className="card flex flex-col h-[650px] shadow-xl overflow-hidden">
+            <div className={`lg:col-span-8 space-y-6 ${currentCaseDocId ? 'block' : 'hidden lg:block'}`}>
+              <div className="card flex flex-col h-[500px] md:h-[650px] shadow-xl overflow-hidden">
                 <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                   <div className="flex items-center gap-3">
                     <div className={`w-2 h-2 rounded-full ${caseStatus === 'Recording' ? 'bg-red-500 animate-ping' : 'bg-green-500'}`} />
@@ -1442,61 +1536,63 @@ export default function App() {
             <AnimatePresence>
               {selectedCase && (
                 <div className="modal-overlay" onClick={() => setSelectedCase(null)}>
-                  <motion.div 
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="bg-white w-full max-w-5xl h-[85vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden m-4"
-                  >
-                    <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                      <div>
-                        <div className="flex items-center gap-3 mb-1">
-                           <h3 className="text-2xl font-bold text-slate-900">{selectedCase.caseId}</h3>
-                           <span className="px-2 py-0.5 bg-police-blue text-white text-[10px] font-bold rounded-md uppercase">{t.liveFeed}</span>
+                    <motion.div 
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 20 }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="bg-white w-full md:max-w-5xl h-full md:h-[85vh] md:rounded-3xl shadow-2xl flex flex-col overflow-hidden relative"
+                    >
+                      <div className="p-5 md:p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                        <div>
+                          <div className="flex items-center gap-3 mb-1">
+                             <h3 className="text-xl md:text-2xl font-bold text-slate-900">{selectedCase.caseId}</h3>
+                             <span className="px-2 py-0.5 bg-police-blue text-white text-[9px] font-bold rounded-md uppercase">{t.liveFeed}</span>
+                          </div>
+                          <p className="text-xs md:text-sm text-slate-500 font-bold uppercase tracking-widest truncate max-w-[200px] md:max-w-none">
+                            {selectedCase.intervieweeName} • {t.statementReview}
+                          </p>
                         </div>
-                        <p className="text-sm text-slate-500 font-bold uppercase tracking-widest">{selectedCase.intervieweeName} • {t.statementReview}</p>
+                        <button onClick={() => setSelectedCase(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                          <X className="w-5 h-5 text-slate-400" />
+                        </button>
                       </div>
-                      <button onClick={() => setSelectedCase(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-                        <Trash2 className="w-5 h-5 text-slate-400" />
-                      </button>
-                    </div>
-                    
-                    <div className="flex-1 p-10 bg-white overflow-y-auto scrollbar-hide">
-                      <div className="max-w-3xl mx-auto border-l-4 border-police-blue/20 pl-8">
-                        <p className="text-2xl leading-[1.8] font-ethiopic text-slate-800 whitespace-pre-line">
-                          {selectedCase.transcription || t.establish}
-                        </p>
+                      
+                      <div className="flex-1 p-6 md:p-10 bg-white overflow-y-auto">
+                        <div className="max-w-3xl mx-auto border-l-4 border-police-blue/20 pl-4 md:pl-8">
+                          <p className="text-lg md:text-2xl leading-[1.8] font-ethiopic text-slate-800 whitespace-pre-line">
+                            {selectedCase.transcription || t.establish}
+                          </p>
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
-                      <div className="flex gap-8 text-xs font-bold text-slate-400">
-                         <div className="flex flex-col">
-                           <span>{t.officer}</span>
-                           <span className="text-white">{selectedCase.detectiveName}</span>
-                         </div>
-                         <div className="flex flex-col">
-                           <span>{t.language}</span>
-                           <span className="text-white">{selectedCase.language}</span>
-                         </div>
-                         <div className="flex flex-col">
-                           <span>{t.status}</span>
-                           <span className={selectedCase.status === 'Recording' ? 'text-red-400' : 'text-green-400'}>{selectedCase.status}</span>
-                         </div>
+                      <div className="p-5 md:p-6 bg-slate-900 text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div className="grid grid-cols-2 md:flex gap-4 md:gap-8 text-[10px] md:text-xs font-bold text-slate-400 w-full md:w-auto">
+                           <div className="flex flex-col">
+                             <span>{t.officer}</span>
+                             <span className="text-white truncate">{selectedCase.detectiveName}</span>
+                           </div>
+                           <div className="flex flex-col">
+                             <span>{t.language}</span>
+                             <span className="text-white">{selectedCase.language}</span>
+                           </div>
+                           <div className="flex flex-col">
+                             <span>{t.status}</span>
+                             <span className={selectedCase.status === 'Recording' ? 'text-red-400' : 'text-green-400'}>{selectedCase.status}</span>
+                           </div>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            setActivePrintId('case');
+                            setTimeout(() => window.print(), 300);
+                          }}
+                          className="w-full md:w-auto btn-primary bg-white text-police-blue hover:bg-slate-100 flex items-center justify-center gap-2 py-3 md:py-2"
+                        >
+                          <Download className="w-4 h-4" />
+                          {t.captureArchive}
+                        </button>
                       </div>
-                      <button 
-                        onClick={() => {
-                          setActivePrintId('case');
-                          setTimeout(() => window.print(), 300);
-                        }}
-                        className="btn-primary bg-white text-police-blue hover:bg-slate-100 flex items-center gap-2"
-                      >
-                        <Download className="w-4 h-4" />
-                        {t.captureArchive}
-                      </button>
-                    </div>
-                  </motion.div>
+                    </motion.div>
                 </div>
               )}
             </AnimatePresence>
@@ -1505,7 +1601,7 @@ export default function App() {
       </main>
 
       {/* Hidden Printable Official Document (Case) */}
-      <div id="printable-report" className={`${activePrintId === 'case' ? 'print:block' : 'print:hidden'} hidden font-serif text-black p-0 leading-relaxed`}>
+      <div id="printable-report" className={`${activePrintId === 'case' ? 'print:block' : 'print:hidden'} hidden font-serif text-black p-0 leading-relaxed overflow-visible`}>
         <div className="w-[190mm] mx-auto min-h-screen relative p-[15mm]">
           {/* Header */}
           <div className="text-center mb-10 border-b-2 border-black pb-8 relative">
@@ -1603,7 +1699,7 @@ export default function App() {
       </div>
 
       {/* Hidden Printable Official Document (Statistics) */}
-      <div id="printable-stats" className={`${activePrintId === 'stats' ? 'print:block' : 'print:hidden'} hidden font-serif text-black p-10 leading-relaxed`}>
+      <div id="printable-stats" className={`${activePrintId === 'stats' ? 'print:block' : 'print:hidden'} hidden font-serif text-black p-10 leading-relaxed overflow-visible`}>
         <div className="text-center mb-10 border-b-2 border-black pb-8">
            <h1 className="text-3xl font-black">{t.title}</h1>
            <h2 className="text-xl font-bold mt-2 uppercase">{t.reports}</h2>
