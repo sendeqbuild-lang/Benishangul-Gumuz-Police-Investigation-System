@@ -239,6 +239,7 @@ export default function App() {
   const [allCases, setAllCases] = useState<CaseRecord[]>([]);
   const [allStaff, setAllStaff] = useState<StaffProfile[]>([]);
   const [selectedCase, setSelectedCase] = useState<CaseRecord | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   // Admin Form State
@@ -350,6 +351,15 @@ export default function App() {
       videoRef.current.srcObject = stream;
     }
   }, [isRecording, stream]);
+
+  const filteredCases = allCases.filter(c => {
+    const s = searchTerm.toLowerCase();
+    return (
+      c.caseId.toLowerCase().includes(s) || 
+      c.intervieweeName.toLowerCase().includes(s) ||
+      c.detectiveName.toLowerCase().includes(s)
+    );
+  });
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -557,9 +567,10 @@ export default function App() {
       const { secondaryAuth } = await import('./lib/firebase');
       const userCredential = await createUserWithEmailAndPassword(secondaryAuth, newStaff.email, newStaff.password);
       
-      // Store profile in Firestore
+      // Store profile in Firestore (exclude password)
+      const { password, ...staffData } = newStaff;
       await setDoc(doc(db, 'users', userCredential.user.uid), {
-        ...newStaff,
+        ...staffData,
         createdAt: serverTimestamp()
       });
 
@@ -1003,8 +1014,18 @@ export default function App() {
                   <History className="w-4 h-4 text-slate-400" />
                   {t.history}
                 </h3>
+                <div className="relative mb-3">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
+                  <input 
+                    type="text" 
+                    placeholder="Search records..." 
+                    className="w-full pl-7 pr-2 py-1.5 bg-slate-50 border border-slate-100 rounded-lg text-xs focus:ring-1 focus:ring-police-blue outline-none transition-all"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
                 <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
-                  {allCases.map(c => (
+                  {filteredCases.map(c => (
                     <button 
                       key={c.id}
                       onClick={() => selectCaseForEditing(c)}
@@ -1133,7 +1154,13 @@ export default function App() {
               </div>
               <div className="relative w-full md:w-80">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input type="text" placeholder={t.search} className="input-field pl-10" />
+                <input 
+                  type="text" 
+                  placeholder={t.search} 
+                  className="input-field pl-10" 
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
               </div>
             </div>
 
@@ -1150,7 +1177,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {allCases.map((c) => (
+                    {filteredCases.map((c) => (
                       <tr key={c.id} className="hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => setSelectedCase(c)}>
                         <td className="px-6 py-5">
                           <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border ${
