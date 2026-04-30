@@ -19,19 +19,19 @@
 
 @layer components {
   .btn-primary {
-    @apply px-4 py-2 bg-police-blue text-white rounded-md font-medium hover:bg-blue-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2;
+    @apply px-5 py-2.5 bg-police-blue text-white rounded-xl font-bold hover:bg-blue-900 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-blue-900/10;
   }
   
   .btn-secondary {
-    @apply px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-md font-medium hover:bg-slate-50 transition-colors flex items-center gap-2;
+    @apply px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition-all active:scale-[0.98] flex items-center justify-center gap-2;
   }
 
   .input-field {
-    @apply w-full px-3 py-2 border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-police-blue focus:border-transparent transition-all;
+    @apply w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-police-blue/10 focus:border-police-blue focus:bg-white transition-all text-sm font-medium;
   }
 
   .card {
-    @apply bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden;
+    @apply bg-white rounded-2xl border border-slate-200/60 shadow-xl shadow-slate-200/20 overflow-hidden;
   }
 
   /* Recording Animation */

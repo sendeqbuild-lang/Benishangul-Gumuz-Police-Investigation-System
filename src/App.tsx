@@ -437,7 +437,35 @@ export default function App() {
 
   const handleLogout = () => {
     signOut(auth);
+    // Reset all session states
+    setCurrentCaseDocId(null);
+    setTranscription('');
+    setCaseStatus('Initial');
+    setRecordCount(0);
+    setSearchTerm('');
+    setMode('Investigator');
+    setSelectedCase(null);
   };
+
+  // Auto-reset Investigator form when switching back to creation mode (currentCaseDocId becomes null)
+  useEffect(() => {
+    if (!currentCaseDocId && user) {
+      setCaseInfo({
+        caseId: `POL-${Math.floor(1000 + Math.random() * 9000)}`,
+        detectiveName: user.displayName || user.email?.split('@')[0] || '',
+        intervieweeName: '',
+        personType: 'Witness',
+        language: 'Amharic',
+        recordingMode: 'Audio'
+      });
+      setTranscription('');
+      setCaseStatus('Initial');
+      setRecordCount(0);
+      setIsRecording(false);
+      setIsProcessing(false);
+      setDuration(0);
+    }
+  }, [currentCaseDocId, user]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -700,25 +728,33 @@ export default function App() {
             </div>
           )}
 
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleLogin} className="space-y-6">
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">{t.email}</label>
-              <input 
-                type="email" 
-                required
-                className="input-field" 
-                placeholder="officer@bgpolice.gov.et"
-                value={loginForm.email}
-                onChange={(e) => setLoginForm({...loginForm, email: e.target.value})}
-              />
+              <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase tracking-widest">{t.email}</label>
+              <div className="relative group">
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-police-blue transition-colors">
+                  <User className="w-4 h-4" />
+                </div>
+                <input 
+                  type="email" 
+                  required
+                  className="input-field pl-11" 
+                  placeholder="officer@bgpolice.gov.et"
+                  value={loginForm.email}
+                  onChange={(e) => setLoginForm({...loginForm, email: e.target.value})}
+                />
+              </div>
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">{t.password}</label>
-              <div className="relative">
+              <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase tracking-widest">{t.password}</label>
+              <div className="relative group">
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-police-blue transition-colors">
+                  <Fingerprint className="w-4 h-4" />
+                </div>
                 <input 
                   type={showPassword ? "text" : "password"} 
                   required
-                  className="input-field pr-10" 
+                  className="input-field pl-11 pr-11" 
                   placeholder="••••••••"
                   value={loginForm.password}
                   onChange={(e) => setLoginForm({...loginForm, password: e.target.value})}
@@ -726,7 +762,7 @@ export default function App() {
                 <button 
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-police-blue"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-police-blue bg-white p-1 rounded-md"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -734,9 +770,10 @@ export default function App() {
             </div>
             <button 
               type="submit"
-              className="w-full bg-gradient-to-r from-police-blue to-blue-800 text-white py-3 flex items-center justify-center gap-2 shadow-lg shadow-blue-100 rounded-xl font-bold hover:scale-[1.02] transition-transform active:scale-[0.98]"
+              className="w-full btn-primary py-4 text-base shadow-xl shadow-blue-900/20"
             >
               {t.signIn}
+              <ChevronRight className="w-5 h-5" />
             </button>
           </form>
           
@@ -1140,7 +1177,7 @@ export default function App() {
                         placeholder="Create temporary password"
                       />
                     </div>
-                    <button type="submit" className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 text-white font-bold py-3 rounded-xl hover:shadow-xl transition-all active:scale-[0.98]">{t.register}</button>
+                    <button type="submit" className="w-full btn-primary py-4 text-base">{t.register}</button>
                   </form>
                 </div>
               </div>
@@ -1181,30 +1218,55 @@ export default function App() {
             {/* Left Column: Form & Controls */}
             <div className={`lg:col-span-4 space-y-6 ${currentCaseDocId ? 'hidden lg:block' : 'block'}`}>
               <div className="card p-5 md:p-6">
-                <h3 className="text-base md:text-lg font-bold mb-4 flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-police-blue" />
-                  {t.testimonyInfo}
-                </h3>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-base md:text-lg font-bold flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-police-blue" />
+                    {t.testimonyInfo}
+                  </h3>
+                  {currentCaseDocId && (
+                    <button 
+                      onClick={() => {
+                        if (window.confirm("Are you sure you want to start a new entry? Current progress will be saved.")) {
+                          setCurrentCaseDocId(null);
+                        }
+                      }}
+                      className="text-[10px] font-bold text-police-blue uppercase tracking-widest hover:underline"
+                    >
+                      + New Entry
+                    </button>
+                  )}
+                </div>
                 <div className="space-y-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">{t.caseId}</label>
-                    <input 
-                      type="text" 
-                      className="input-field bg-slate-50 cursor-not-allowed font-bold" 
-                      value={caseInfo.caseId}
-                      readOnly
-                      disabled={isRecording || caseStatus === 'Finalized'}
-                    />
+                    <div className="relative group">
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-police-blue/40 group-focus-within:text-police-blue transition-colors">
+                        <Fingerprint className="w-4 h-4" />
+                      </div>
+                      <input 
+                        type="text" 
+                        className="input-field pl-11 bg-slate-50 cursor-not-allowed font-bold" 
+                        value={caseInfo.caseId}
+                        readOnly
+                        disabled={isRecording || caseStatus === 'Finalized'}
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">{t.subjectName}</label>
-                    <input 
-                      type="text" 
-                      className="input-field" 
-                      value={caseInfo.intervieweeName}
-                      onChange={(e) => setCaseInfo({...caseInfo, intervieweeName: e.target.value})}
-                      disabled={isRecording || caseStatus === 'Finalized'}
-                    />
+                    <div className="relative group">
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-police-blue/40 group-focus-within:text-police-blue transition-colors">
+                        <User className="w-4 h-4" />
+                      </div>
+                      <input 
+                        type="text" 
+                        className="input-field pl-11" 
+                        value={caseInfo.intervieweeName}
+                        onChange={(e) => setCaseInfo({...caseInfo, intervieweeName: e.target.value})}
+                        disabled={isRecording || caseStatus === 'Finalized'}
+                        placeholder="Enter name..."
+                      />
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
