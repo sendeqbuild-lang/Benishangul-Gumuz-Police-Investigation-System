@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'sendeqbuild@gmail.com' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.userType == 'Admin'
+      );
+    }
+
+    function isOwner(data) {
+      return data.investigatorUid == request.auth.uid || data.investigatorEmail == request.auth.token.email;
+    }
+
+    function isValidCase(data) {
+      return data.caseId is string && data.caseId.size() > 0 
+        && data.detectiveName is string && data.detectiveName.size() > 0
+        && data.intervieweeName is string && data.intervieweeName.size() > 0
+        && data.status in ['Recording', 'Processing', 'Draft', 'Finalized'];
+    }
+
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /cases/{caseId} {
+      allow read: if isSignedIn() && (isAdmin() || isOwner(resource.data));
+      allow create: if isSignedIn() && isValidCase(request.resource.data);
+      allow update: if isSignedIn() && (
+        (isOwner(resource.data) && resource.data.status != 'Finalized' && isValidCase(request.resource.data)) ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "Benishangul-Gumuz Police Investigation System",
+  "description": "An AI-powered system for the Benishangul-Gumuz Regional Police Commission to record testimonies, transcribe them from multiple languages into Amharic, and generate printable reports.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ],
+  "majorCapabilities": [
+    "Audio Recording",
+    "Multilingual AI Transcription",
+    "Automatic Translation to Amharic",
+    "Professional Police Report Generation"
+  ]
+}

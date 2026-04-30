@@ -1,0 +1,47 @@
+{
+  "entities": {
+    "User": {
+      "title": "Police Officer Profile",
+      "description": "Details of an investigator or officer.",
+      "type": "object",
+      "properties": {
+        "fullName": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string" },
+        "email": { "type": "string" },
+        "userType": { "type": "string", "enum": ["Investigator", "Admin"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "fullName", "userType"]
+    },
+    "Case": {
+      "title": "Police Case Testimony",
+      "description": "Represents a specific testimony record for a case.",
+      "type": "object",
+      "properties": {
+        "caseId": { "type": "string" },
+        "detectiveName": { "type": "string" },
+        "intervieweeName": { "type": "string" },
+        "personType": { "type": "string", "enum": ["Suspect", "Witness", "Complainant"] },
+        "language": { "type": "string" },
+        "transcription": { "type": "string" },
+        "status": { "type": "string", "enum": ["Recording", "Processing", "Draft", "Finalized"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "investigatorUid": { "type": "string" },
+        "investigatorEmail": { "type": "string" }
+      },
+      "required": ["caseId", "detectiveName", "intervieweeName", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "Store officer profiles."
+    },
+    "/cases/{caseId}": {
+      "schema": "Case",
+      "description": "Store all police testimony records."
+    }
+  }
+}
