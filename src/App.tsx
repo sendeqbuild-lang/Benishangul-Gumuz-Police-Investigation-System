@@ -35,7 +35,10 @@ import {
   ChevronLeft,
   UserCheck,
   Users,
-  Pause
+  Pause,
+  Scan,
+  Archive,
+  FileX
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { transcribeAndTranslateAudio } from './lib/gemini';
@@ -46,6 +49,7 @@ import {
   OperationType, 
   handleFirestoreError 
 } from './lib/firebase';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 import { 
   signInWithPopup, 
   signOut, 
@@ -65,7 +69,8 @@ import {
   serverTimestamp,
   addDoc,
   where,
-  deleteDoc
+  deleteDoc,
+  getDocs
 } from 'firebase/firestore';
 
 // Types
@@ -169,7 +174,18 @@ const translations = {
     verifyUrl: "https://ais-dev-q22bxfcxrb6ppybpdgaxm4-505824486313.europe-west2.run.app",
     recordingMode: "Recording Mode",
     video: "Video",
-    audio: "Audio"
+    audio: "Audio",
+    scanQR: "Scan QR Verification",
+    scanningTitle: "Align QR Code within Frame",
+    verifySuccess: "Authenticity Verified Successfully",
+    verifyFail: "Verification Failed: Record Not Found",
+    verifyBtn: "Verify QR Code",
+    myArchives: "My Case Archives",
+    openFile: "Open Record",
+    editActive: "Currently Editing Record",
+    transcribing: "Converting voice to text...",
+    transcriptionSuccess: "Transcription successfully completed!",
+    ready: "Ready"
   },
   AM: {
     title: "የቤንሻንጉል ጉሙዝ ፖሊስ ኮሚሽን",
@@ -246,7 +262,18 @@ const translations = {
     verifyUrl: "https://ais-dev-q22bxfcxrb6ppybpdgaxm4-505824486313.europe-west2.run.app",
     recordingMode: "የመቅጃ ዘዴ",
     video: "ቪዲዮ",
-    audio: "ድምፅ"
+    audio: "ድምፅ",
+    scanQR: "QR ኮድ ስካን አድርግ",
+    scanningTitle: "QR ኮዱን በትክክለኛው ቦታ ያስገቡ",
+    verifySuccess: "ትክክለኛነቱ በተሳካ ሁኔታ ተረጋግጧል",
+    verifyFail: "ትክክለኛነቱ አልተረጋገጠም፡ መዝገቡ አልተገኘም",
+    verifyBtn: "QR ኮድ አረጋግጥ",
+    myArchives: "የእኔ የሰነድ መዛግብት",
+    openFile: "ሰነዱን ክፈት",
+    editActive: "አሁን እየታረመ ያለ ሰነድ",
+    transcribing: "ድምፁን ወደ ጽሁፍ እየቀየረ ነው...",
+    transcriptionSuccess: "ወደ ጽሁፍ የመቀየር ስራው በተሳካ ሁኔታ ተጠናቋል!",
+    ready: "ዝግጁ"
   }
 };
 
@@ -270,10 +297,16 @@ export default function App() {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [recordCount, setRecordCount] = useState(0); 
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [transcription, setTranscription] = useState('');
   const [duration, setDuration] = useState(0);
   const [currentCaseDocId, setCurrentCaseDocId] = useState<string | null>(null);
   const [caseStatus, setCaseStatus] = useState<'Recording' | 'Processing' | 'Draft' | 'Finalized' | 'Initial'>('Initial');
+  const [showScanner, setShowScanner] = useState(false);
+  const [scanResult, setScanResult] = useState<string | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verifiedCase, setVerifiedCase] = useState<CaseRecord | null>(null);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
   
   const [caseInfo, setCaseInfo] = useState({
     caseId: generateCaseId(),
@@ -479,6 +512,32 @@ export default function App() {
     }
   }, [currentCaseDocId, user]);
 
+  useEffect(() => {
+    const checkVerifyUrl = async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const verifyId = urlParams.get('verify');
+      if (verifyId) {
+        setScanResult(verifyId);
+        setIsVerifying(true);
+        try {
+          const q = query(collection(db, 'cases'), where('caseId', '==', verifyId));
+          const querySnapshot = await getDocs(q);
+          if (!querySnapshot.empty) {
+            setVerifiedCase(querySnapshot.docs[0].data() as any);
+          } else {
+            setVerificationError(translations[uiLanguage].verifyFail);
+          }
+        } catch (err) {
+          console.error("Verification error:", err);
+          setVerificationError("Verification service offline.");
+        } finally {
+          setIsVerifying(false);
+        }
+      }
+    };
+    checkVerifyUrl();
+  }, []);
+
    useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
@@ -629,6 +688,55 @@ export default function App() {
     }
   };
 
+  const handleScanSuccess = async (decodedText: string) => {
+    let caseId = decodedText;
+    if (decodedText.startsWith('http')) {
+      try {
+        const url = new URL(decodedText);
+        caseId = url.searchParams.get('verify') || decodedText;
+      } catch (e) {
+        caseId = decodedText;
+      }
+    }
+
+    setScanResult(caseId);
+    setShowScanner(false);
+    setIsVerifying(true);
+    setVerificationError(null);
+    setVerifiedCase(null);
+
+    try {
+      const q = query(collection(db, 'cases'), where('caseId', '==', caseId));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        setVerifiedCase(querySnapshot.docs[0].data() as any);
+      } else {
+        setVerificationError(t.verifyFail);
+      }
+    } catch (err) {
+      console.error("Verification error:", err);
+      setVerificationError("Database access error during verification.");
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  useEffect(() => {
+    let scanner: Html5QrcodeScanner | null = null;
+    if (showScanner) {
+      const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+      scanner = new Html5QrcodeScanner("qr-reader", config, false);
+      scanner.render(handleScanSuccess, (error) => {});
+    }
+
+    return () => {
+      if (scanner) {
+        scanner.clear().catch(error => console.error("Scanner clear error", error));
+      }
+    };
+  }, [showScanner]);
+
   const processAudio = async (blob: Blob, docId: string) => {
     setIsProcessing(true);
     setError(null);
@@ -639,13 +747,16 @@ export default function App() {
         const base64data = reader.result?.toString().split(',')[1];
         if (base64data) {
           const result = await transcribeAndTranslateAudio(base64data, 'audio/webm', caseInfo.language);
-          setTranscription(result);
+          const newTranscription = transcription ? transcription + "\n\n" + result : result;
+          setTranscription(newTranscription);
           setCaseStatus('Draft');
           await updateDoc(doc(db, 'cases', docId), {
-            transcription: result,
+            transcription: newTranscription,
             status: 'Draft',
             updatedAt: serverTimestamp()
           });
+          setShowSuccessToast(true);
+          setTimeout(() => setShowSuccessToast(false), 5000);
         }
       };
     } catch (err: any) {
@@ -658,6 +769,16 @@ export default function App() {
 
   const finalizeAndPrint = async () => {
     if (!currentCaseDocId) return;
+    
+    // Always save current transcription before finalizing
+    try {
+      await updateDoc(doc(db, 'cases', currentCaseDocId), {
+        transcription: transcription,
+        updatedAt: serverTimestamp()
+      });
+    } catch (err) {
+      console.error("Save error:", err);
+    }
     
     const confirm = window.confirm("ካተሙ በኋላ ፅሁፉን መቀየር አይቻልም። እርግጠኛ ነዎት? (Once printed, editing is locked. Continue?)");
     if (confirm) {
@@ -841,52 +962,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-12 flex flex-col font-ethiopic">
-      {/* Verification Layer for QR - hidden from normal flow but active via URL */}
-      {window.location.search.includes('verify=') && (
-        <div className="fixed inset-0 bg-slate-900 z-[9999] flex items-center justify-center p-4">
-          <div className="max-w-md w-full bg-white rounded-[2.5rem] p-10 text-center shadow-2xl overflow-hidden relative">
-            <div className="absolute top-0 left-0 w-full h-3 bg-gradient-to-r from-green-400 to-emerald-600" />
-            <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-8">
-              <ShieldCheck className="w-14 h-14 text-green-600" />
-            </div>
-            <h2 className="text-3xl font-black text-slate-900 mb-2 leading-tight">ORIGINAL RECORD VERIFIED</h2>
-            <p className="text-slate-500 mb-10 font-ethiopic">ትክክለኛነቱ የተረጋገጠ የክልል ፖሊስ የቃል መዝገብ ሰነድ</p>
-            
-            <div className="bg-slate-50 border border-slate-100 rounded-3xl p-6 text-left space-y-5 mb-8">
-              <div className="flex justify-between items-start">
-                <div>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Case ID</span>
-                  <p className="font-black text-lg text-slate-800">{new URLSearchParams(window.location.search).get('verify')}</p>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Security Type</span>
-                  <p className="text-xs font-bold text-police-blue flex items-center gap-1"><Fingerprint className="w-3 h-3" /> Encrypted</p>
-                </div>
-              </div>
-              <div className="pt-4 border-t border-slate-200">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Verification Hash</span>
-                <p className="font-mono text-[11px] text-slate-500 break-all bg-white p-2 rounded-lg mt-1 border border-slate-100 shadow-sm">AUTHENTICATED-SYSTEM-PRINT-BGPC-09-{Math.random().toString(36).substring(7).toUpperCase()}</p>
-              </div>
-              <div className="flex items-center gap-2 text-green-600 bg-green-50/50 p-2 rounded-xl justify-center">
-                 <CheckCircle className="w-4 h-4" />
-                 <span className="text-xs font-bold uppercase tracking-wider">Status: Official Original Document</span>
-              </div>
-            </div>
-            
-            <button 
-              onClick={() => window.location.href = '/'}
-              className="w-full btn-primary py-5 rounded-2xl shadow-xl shadow-blue-200 font-bold"
-            >
-              Access Command Center
-            </button>
-            <div className="mt-8 flex items-center justify-center gap-2 text-[10px] font-bold text-slate-300 uppercase tracking-widest">
-               <Shield className="w-3 h-3" />
-               BG Police Integrity Division
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Header */}
       <header className="bg-police-blue text-white shadow-lg no-print sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center relative gap-4">
@@ -920,6 +995,14 @@ export default function App() {
             >
               <Languages className="w-4 h-4 text-blue-200 group-hover:text-white" />
               {uiLanguage === 'EN' ? 'አማርኛ' : 'English'}
+            </button>
+            <div className="w-px h-5 bg-white/10 mx-2" />
+            <button 
+              onClick={() => setShowScanner(true)}
+              className="flex items-center gap-2.5 px-4 py-2 hover:bg-white/10 rounded-xl transition-all font-bold text-white text-xs group"
+            >
+              <Scan className="w-4 h-4 text-blue-200 group-hover:text-white" />
+              {t.scanQR}
             </button>
             <div className="w-px h-5 bg-white/10 mx-2" />
             <button
@@ -1013,6 +1096,13 @@ export default function App() {
                 >
                   <Languages className="w-5 h-5" />
                   {uiLanguage === 'EN' ? 'አማርኛ' : 'English'}
+                </button>
+                <button 
+                  onClick={() => { setShowScanner(true); setIsMenuOpen(false); }}
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-white hover:bg-white/10"
+                >
+                  <Scan className="w-5 h-5" />
+                  {t.scanQR}
                 </button>
                 <button 
                   onClick={() => { handleLogout(); setIsMenuOpen(false); }}
@@ -1437,44 +1527,50 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Investigator's Recent Cases */}
-              <div className="card p-4">
-                <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
-                  <History className="w-4 h-4 text-slate-400" />
-                  {t.history}
-                </h3>
-                <div className="relative mb-3">
-                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
-                  <input 
-                    type="text" 
-                    placeholder="Search records..." 
-                    className="w-full pl-7 pr-2 py-1.5 bg-slate-50 border border-slate-100 rounded-lg text-xs focus:ring-1 focus:ring-police-blue outline-none transition-all"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
+              {/* Investigator's My Case Archives */}
+              <div className="card overflow-hidden">
+                <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex justify-between items-center">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <Archive className="w-4 h-4" />
+                    {t.myArchives}
+                  </h3>
+                  <div className="p-1 bg-white rounded-lg border border-slate-200">
+                    <Search className="w-3 h-3 text-slate-300" />
+                  </div>
                 </div>
-                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
-                  {filteredCases.map(c => (
-                    <button 
+                
+                <div className="p-4 space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar">
+                  {filteredCases.filter(c => c.detectiveName === (user?.displayName || user?.email)).map(c => (
+                    <div 
                       key={c.id}
                       onClick={() => selectCaseForEditing(c)}
-                      className={`w-full text-left p-3 rounded-xl border transition-all ${
-                        currentCaseDocId === c.id ? 'border-police-blue bg-blue-50' : 'border-slate-100 hover:border-slate-300'
+                      className={`group relative flex items-center gap-4 p-4 rounded-2xl border-2 transition-all cursor-pointer ${
+                        currentCaseDocId === c.id ? 'border-police-blue bg-blue-50/50 shadow-md translate-x-1' : 'border-slate-50 hover:border-slate-200 hover:bg-slate-50'
                       }`}
                     >
-                      <div className="flex justify-between items-start mb-1">
-                        <span className="font-bold text-xs text-police-blue">{c.caseId}</span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase ${
-                          c.status === 'Finalized' ? 'bg-green-100 text-green-700' :
-                          c.status === 'Recording' ? 'bg-red-100 text-red-700 animate-pulse' :
-                          'bg-slate-100 text-slate-500'
-                        }`}>{c.status}</span>
+                      <div className={`p-3 rounded-xl ${c.status === 'Finalized' ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'}`}>
+                        <FileText className="w-5 h-5" />
                       </div>
-                      <p className="text-xs font-bold text-slate-800 truncate">{c.intervieweeName}</p>
-                    </button>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-start mb-0.5">
+                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">{c.caseId}</span>
+                        </div>
+                        <p className="text-xs font-bold text-slate-800 truncate">{c.intervieweeName || "Unnamed Subject"}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-widest ${
+                            c.status === 'Finalized' ? 'bg-green-200 text-green-800' : 'bg-amber-200 text-amber-800'
+                          }`}>
+                            {c.status}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                   ))}
-                  {allCases.length === 0 && (
-                    <p className="text-xs text-slate-400 text-center py-6 italic">{t.noHistory}</p>
+                  {filteredCases.filter(c => c.detectiveName === (user?.displayName || user?.email)).length === 0 && (
+                    <div className="text-center py-10 opacity-40">
+                      <FileX className="w-10 h-10 mx-auto mb-2" />
+                      <p className="text-xs font-bold uppercase tracking-widest">No local files found</p>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1493,14 +1589,37 @@ export default function App() {
                 <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                   <div className="flex items-center gap-3">
                     <div className={`w-2 h-2 rounded-full ${caseStatus === 'Recording' ? 'bg-red-500 animate-ping' : 'bg-green-500'}`} />
-                    <h3 className="font-bold text-slate-800 text-xs uppercase tracking-widest">{t.statementReview}</h3>
+                    <h3 className="font-bold text-slate-800 text-xs uppercase tracking-widest">
+                      {currentCaseDocId ? `${t.editActive}: ${caseInfo.caseId}` : t.statementReview}
+                    </h3>
                   </div>
                   <div className="flex gap-2">
+                    {currentCaseDocId && caseStatus === 'Finalized' && (
+                      <button 
+                        onClick={() => {
+                          if (window.confirm("Unlock this record for further editing?")) {
+                            setCaseStatus('Draft');
+                          }
+                        }}
+                        className="btn-secondary py-2 px-4 text-[10px] uppercase border-amber-200 text-amber-700 hover:bg-amber-50"
+                      >
+                        <Lock className="w-4 h-4" />
+                        Unlock to Edit
+                      </button>
+                    )}
                     <button 
                       onClick={() => {
                         setCurrentCaseDocId(null);
                         setTranscription('');
                         setCaseStatus('Initial');
+                        setCaseInfo({
+                          caseId: generateCaseId(),
+                          detectiveName: user?.displayName || user?.email || '',
+                          intervieweeName: '',
+                          personType: 'Witness',
+                          language: 'Amharic',
+                          recordingMode: 'Audio'
+                        });
                       }}
                       disabled={isRecording}
                       className="btn-secondary py-2 px-4 text-[10px] uppercase"
@@ -1508,10 +1627,29 @@ export default function App() {
                       <PlusCircle className="w-4 h-4" />
                       New Investigation
                     </button>
+                    {currentCaseDocId && caseStatus !== 'Finalized' && (
+                      <button 
+                        onClick={async () => {
+                          try {
+                            await updateDoc(doc(db, 'cases', currentCaseDocId), {
+                              transcription: transcription,
+                              updatedAt: serverTimestamp()
+                            });
+                            alert("Draft Saved!");
+                          } catch (err) {
+                            console.error("Draft save error:", err);
+                          }
+                        }}
+                        className="btn-secondary py-2 px-4 text-[10px] uppercase bg-blue-50 text-blue-700 border-blue-200"
+                      >
+                        <CloudCheck className="w-4 h-4" />
+                        Save Draft
+                      </button>
+                    )}
                     <button 
                       onClick={finalizeAndPrint} 
                       disabled={!transcription || caseStatus === 'Recording'} 
-                      className="btn-primary py-2 px-4 shadow-none text-[10px] uppercase"
+                      className="btn-primary py-2 px-4 shadow-none text-[10px] uppercase transition-all active:scale-95"
                     >
                       <Printer className="w-4 h-4" />
                       {t.finalize}
@@ -1523,9 +1661,35 @@ export default function App() {
                   <AnimatePresence>
                     {isProcessing && (
                       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-white/95 flex flex-col items-center justify-center z-10 backdrop-blur-sm">
-                        <Loader2 className="w-12 h-12 text-police-blue animate-spin mb-4" />
-                        <span className="font-bold text-police-blue uppercase tracking-widest text-xs">{t.processing}</span>
-                        <p className="text-slate-400 text-[10px] mt-2 font-ethiopic uppercase">{t.processingSub}</p>
+                        <div className="relative mb-6">
+                          <Loader2 className="w-16 h-16 text-police-blue animate-spin" />
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="w-8 h-8 rounded-full border-t-2 border-police-blue animate-ping" />
+                          </div>
+                        </div>
+                        <span className="font-black text-police-blue uppercase tracking-[0.2em] text-sm animate-pulse">{t.transcribing}</span>
+                        <div className="mt-8 flex gap-1 items-center">
+                           {[...Array(3)].map((_, i) => (
+                             <motion.div 
+                               key={i}
+                               animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }}
+                               transition={{ repeat: Infinity, duration: 1, delay: i * 0.2 }}
+                               className="w-1.5 h-1.5 rounded-full bg-police-blue"
+                             />
+                           ))}
+                        </div>
+                        <p className="text-slate-400 text-[10px] mt-4 font-ethiopic uppercase tracking-widest">{t.processingSub}</p>
+                      </motion.div>
+                    )}
+                    {showSuccessToast && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: -20 }} 
+                        animate={{ opacity: 1, y: 0 }} 
+                        exit={{ opacity: 0, y: -20 }} 
+                        className="absolute top-8 left-1/2 -translate-x-1/2 z-20 bg-green-500 text-white px-6 py-3 rounded-2xl shadow-xl flex items-center gap-3 border border-green-400"
+                      >
+                        <CheckCircle className="w-5 h-5" />
+                        <span className="font-bold text-xs uppercase tracking-widest">{t.transcriptionSuccess}</span>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -1739,6 +1903,119 @@ export default function App() {
                         </button>
                       </div>
                     </motion.div>
+                </div>
+              )}
+            </AnimatePresence>
+
+            {/* QR Scanner Modal */}
+            <AnimatePresence>
+              {showScanner && (
+                <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[1000] flex items-center justify-center p-4">
+                  <motion.div 
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.9, opacity: 0 }}
+                    className="bg-white w-full max-w-md rounded-[2.5rem] overflow-hidden shadow-2xl relative"
+                  >
+                    <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                       <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                         <Scan className="w-6 h-6 text-police-blue" />
+                         {t.scanQR}
+                       </h2>
+                       <button onClick={() => setShowScanner(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                         <X className="w-5 h-5 text-slate-500" />
+                       </button>
+                    </div>
+                    <div className="p-8">
+                       <p className="text-center text-sm font-bold text-slate-500 mb-6 uppercase tracking-widest">{t.scanningTitle}</p>
+                       <div id="qr-reader" className="rounded-2xl overflow-hidden border-4 border-slate-100 shadow-inner bg-slate-50"></div>
+                       <div className="mt-8 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 py-3 rounded-xl border border-dashed border-slate-200">
+                          {t.establish}
+                       </div>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+            </AnimatePresence>
+
+            {/* Verification Result Modal */}
+            <AnimatePresence>
+              {(isVerifying || scanResult) && !showScanner && (
+                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[1000] flex items-center justify-center p-4" onClick={() => { setScanResult(null); setVerifiedCase(null); }}>
+                   <motion.div 
+                     initial={{ y: 50, opacity: 0 }}
+                     animate={{ y: 0, opacity: 1 }}
+                     exit={{ y: 50, opacity: 0 }}
+                     onClick={(e) => e.stopPropagation()}
+                     className="bg-white w-full max-w-lg rounded-[3rem] overflow-hidden shadow-2xl relative"
+                   >
+                      {isVerifying ? (
+                        <div className="p-20 text-center uppercase">
+                          <div className="w-12 h-12 border-4 border-police-blue border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                          <p className="font-black text-slate-400 tracking-widest">{t.processingSub}</p>
+                        </div>
+                      ) : (
+                        <div className="p-10">
+                          {verifiedCase ? (
+                            <div className="text-center">
+                              <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                                <ShieldCheck className="w-14 h-14 text-green-600" />
+                              </div>
+                              <h2 className="text-2xl font-black text-slate-900 mb-1">{t.verifySuccess}</h2>
+                              <p className="text-slate-500 text-sm font-bold uppercase tracking-widest mb-8">Official Database Entry Identified</p>
+                              
+                              <div className="bg-slate-50 border border-slate-100 rounded-3xl p-6 text-left space-y-4 mb-8">
+                                 <div className="flex justify-between items-start">
+                                   <div>
+                                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Case ID</span>
+                                     <p className="font-black text-xl text-police-blue">{verifiedCase.caseId}</p>
+                                   </div>
+                                   <div className="text-right">
+                                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Subject</span>
+                                     <p className="font-bold text-slate-800">{verifiedCase.intervieweeName}</p>
+                                   </div>
+                                 </div>
+                                 <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-200">
+                                   <div>
+                                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Investigator</span>
+                                     <p className="text-xs font-bold text-slate-600">{verifiedCase.detectiveName}</p>
+                                   </div>
+                                   <div>
+                                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Status</span>
+                                     <p className="text-xs font-bold text-green-600 uppercase">{verifiedCase.status}</p>
+                                   </div>
+                                 </div>
+                                 <div className="pt-4 border-t border-slate-200">
+                                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Transcription Snapshot</span>
+                                   <p className="text-sm font-ethiopic text-slate-600 line-clamp-3 mt-1 italic">{verifiedCase.transcription}</p>
+                                 </div>
+                              </div>
+                              
+                              <button 
+                                onClick={() => { setScanResult(null); setSelectedCase(verifiedCase); }}
+                                className="w-full btn-primary py-5 rounded-2xl text-lg shadow-xl shadow-blue-200"
+                              >
+                                {t.caseDetails}
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="text-center py-10">
+                              <div className="w-24 h-24 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                                 <AlertCircle className="w-14 h-14 text-red-600" />
+                              </div>
+                              <h2 className="text-2xl font-black text-slate-900 mb-2">{t.verifyFail}</h2>
+                              <p className="text-slate-500 mb-10 px-6 font-bold uppercase tracking-widest text-xs">{verificationError || "The scanned QR code does not match any official record in the regional investigation server."}</p>
+                              <button 
+                                onClick={() => setScanResult(null)}
+                                className="btn-secondary w-full py-5 rounded-2xl border-2"
+                              >
+                                Close Verification Window
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                   </motion.div>
                 </div>
               )}
             </AnimatePresence>
