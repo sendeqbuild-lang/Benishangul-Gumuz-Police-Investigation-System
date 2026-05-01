@@ -296,6 +296,7 @@ export default function App() {
   const [user, setUser] = useState<{uid: string, email: string, displayName?: string} | null>(null);
   const [loadingApp, setLoadingApp] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
 
@@ -357,6 +358,7 @@ export default function App() {
 
   // Auth Listener
   useEffect(() => {
+    setIsMounted(true);
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       if (u) {
         setUser({ uid: u.uid, email: u.email || '', displayName: u.displayName || '' });
@@ -871,6 +873,8 @@ export default function App() {
       setError("Staff operation failed: " + err.message);
     }
   };
+
+  const verifyUrl = isMounted ? `${window.location.origin}${window.location.pathname}?verify=${caseInfo.caseId || 'UNK'}` : '';
 
   if (loadingApp) {
     return (
@@ -2044,7 +2048,7 @@ export default function App() {
           <div className="text-center mb-10 border-b-2 border-black pb-8 relative">
              <div className="absolute top-0 right-0">
                 <QRCodeCanvas 
-                  value={`${window.location.origin}${window.location.pathname}?verify=${caseInfo.caseId || 'UNK'}`} 
+                  value={verifyUrl} 
                   size={95}
                   level="H"
                   includeMargin={false}
