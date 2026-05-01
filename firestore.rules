@@ -35,7 +35,8 @@ service cloud.firestore {
     }
 
     match /cases/{caseId} {
-      allow read: if isSignedIn() && (isAdmin() || isOwner(resource.data));
+      allow read: if (isSignedIn() && (isAdmin() || isOwner(resource.data))) || 
+                  (resource.data.status == 'Finalized');
       allow create: if isSignedIn() && isValidCase(request.resource.data);
       allow update: if isSignedIn() && (
         (isOwner(resource.data) && resource.data.status != 'Finalized' && isValidCase(request.resource.data)) ||

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { 
   Mic, 
@@ -171,7 +171,6 @@ const translations = {
     complainantStatement: "Complainant Statement",
     giverSign: "Statement Giver Sign",
     receiverSign: "Investigator Sign",
-    verifyUrl: "https://ais-dev-q22bxfcxrb6ppybpdgaxm4-505824486313.europe-west2.run.app",
     recordingMode: "Recording Mode",
     video: "Video",
     audio: "Audio",
@@ -185,7 +184,15 @@ const translations = {
     editActive: "Currently Editing Record",
     transcribing: "Converting voice to text...",
     transcriptionSuccess: "Transcription successfully completed!",
-    ready: "Ready"
+    ready: "Ready",
+    activeSession: "Active Investigation Session",
+    officialEntry: "Official Database Entry Identified",
+    liveStream: "Live Stream",
+    stationID: "Monitoring Station Bravo-9",
+    snapshot: "Transcription Snapshot",
+    newInvestigation: "New Investigation",
+    saveDraft: "Save Draft",
+    draftSaved: "Draft Saved!"
   },
   AM: {
     title: "የቤንሻንጉል ጉሙዝ ፖሊስ ኮሚሽን",
@@ -259,7 +266,6 @@ const translations = {
     complainantStatement: "የከሳሽ ቃል",
     giverSign: "የቃል ሰጪ ፊርማ",
     receiverSign: "የመርማሪ ፊርማ",
-    verifyUrl: "https://ais-dev-q22bxfcxrb6ppybpdgaxm4-505824486313.europe-west2.run.app",
     recordingMode: "የመቅጃ ዘዴ",
     video: "ቪዲዮ",
     audio: "ድምፅ",
@@ -273,7 +279,15 @@ const translations = {
     editActive: "አሁን እየታረመ ያለ ሰነድ",
     transcribing: "ድምፁን ወደ ጽሁፍ እየቀየረ ነው...",
     transcriptionSuccess: "ወደ ጽሁፍ የመቀየር ስራው በተሳካ ሁኔታ ተጠናቋል!",
-    ready: "ዝግጁ"
+    ready: "ዝግጁ",
+    activeSession: "ንቁ የምርመራ ክፍለ ጊዜ",
+    officialEntry: "ይፋዊ የመረጃ ቋት ግቤት ተለይቷል",
+    liveStream: "የቀጥታ ስርጭት",
+    stationID: "የክትትል ማዕከል ብራቮ-9",
+    snapshot: "የቃል መዝገብ ቅንጭብ",
+    newInvestigation: "አዲስ ምርመራ",
+    saveDraft: "ረቂቅ አስቀምጥ",
+    draftSaved: "ረቂቅ ተቀምጧል!"
   }
 };
 
@@ -520,12 +534,17 @@ export default function App() {
         setScanResult(verifyId);
         setIsVerifying(true);
         try {
-          const q = query(collection(db, 'cases'), where('caseId', '==', verifyId));
+          const q = query(
+            collection(db, 'cases'), 
+            where('caseId', '==', verifyId),
+            where('status', '==', 'Finalized')
+          );
           const querySnapshot = await getDocs(q);
           if (!querySnapshot.empty) {
             setVerifiedCase(querySnapshot.docs[0].data() as any);
           } else {
-            setVerificationError(translations[uiLanguage].verifyFail);
+            // Document might not be finalized yet or doesn't exist
+            setVerificationError(t.verifyFail);
           }
         } catch (err) {
           console.error("Verification error:", err);
@@ -706,7 +725,11 @@ export default function App() {
     setVerifiedCase(null);
 
     try {
-      const q = query(collection(db, 'cases'), where('caseId', '==', caseId));
+      const q = query(
+        collection(db, 'cases'), 
+        where('caseId', '==', caseId),
+        where('status', '==', 'Finalized')
+      );
       const querySnapshot = await getDocs(q);
       
       if (!querySnapshot.empty) {
@@ -722,32 +745,20 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    let scanner: Html5QrcodeScanner | null = null;
-    let isSubscribed = true;
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
-    if (showScanner) {
-      // Small timeout to ensure the DOM element #qr-reader is present after modal animation starts
-      const timeoutId = setTimeout(() => {
-        if (!isSubscribed) return;
-        
-        const element = document.getElementById("qr-reader");
-        if (element) {
-          const config = { fps: 10, qrbox: { width: 250, height: 250 } };
-          scanner = new Html5QrcodeScanner("qr-reader", config, false);
-          scanner.render(handleScanSuccess, (error) => {});
-        } else {
-          console.error("QR reader element not found");
-        }
-      }, 500);
-
-      return () => {
-        isSubscribed = false;
-        clearTimeout(timeoutId);
-        if (scanner) {
-          scanner.clear().catch(error => console.error("Scanner clear error", error));
-        }
-      };
+  const qrScannerCallback = useCallback((element: HTMLDivElement | null) => {
+    if (element && showScanner) {
+      if (!scannerRef.current) {
+        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+        scannerRef.current = new Html5QrcodeScanner("qr-reader", config, false);
+        scannerRef.current.render(handleScanSuccess, () => {});
+      }
+    } else {
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(error => console.error("Scanner clear error", error));
+        scannerRef.current = null;
+      }
     }
   }, [showScanner]);
 
@@ -861,28 +872,6 @@ export default function App() {
     }
   };
 
-  const handleDeleteStaff = async (staffId: string) => {
-    if (!window.confirm("መርማሪውን ለማጥፋት እርግጠኛ ነዎት? (Are you sure you want to delete this staff?)")) return;
-    try {
-      await deleteDoc(doc(db, 'users', staffId));
-      alert("መርማሪው በትክክል ተሰርዟል! (Staff deleted successfully)");
-    } catch (err: any) {
-      setError("Delete failed: " + err.message);
-    }
-  };
-
-  const handleEditStaff = (staff: StaffProfile) => {
-    setNewStaff({
-      fullName: staff.fullName,
-      email: staff.email,
-      phone: staff.phone || '',
-      role: staff.role || '',
-      password: '',
-      userType: staff.userType
-    });
-    setEditingStaffId(staff.id);
-  };
-
   if (loadingApp) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -891,105 +880,103 @@ export default function App() {
     );
   }
 
-  if (!user) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-100 p-4 font-ethiopic">
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8"
-        >
-          <div className="text-center mb-8">
-            <div className="w-20 h-20 bg-police-blue rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
-               <Shield className="w-10 h-10 text-white" />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-900 mb-2">{t.title}</h1>
-            <p className="text-slate-500 font-ethiopic">{t.subtitle}</p>
-          </div>
-
-          {error && (
-            <div className="mb-6 p-4 bg-red-50 text-red-700 text-sm rounded-xl border border-red-100 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4" />
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleLogin} className="space-y-6">
-            <div>
-              <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase tracking-widest">{t.email}</label>
-              <div className="relative group">
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-police-blue transition-colors">
-                  <User className="w-4 h-4" />
-                </div>
-                <input 
-                  type="email" 
-                  required
-                  className="input-field pl-11" 
-                  placeholder="officer@bgpolice.gov.et"
-                  value={loginForm.email}
-                  onChange={(e) => setLoginForm({...loginForm, email: e.target.value})}
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase tracking-widest">{t.password}</label>
-              <div className="relative group">
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-police-blue transition-colors">
-                  <Fingerprint className="w-4 h-4" />
-                </div>
-                <input 
-                  type={showPassword ? "text" : "password"} 
-                  required
-                  className="input-field pl-11 pr-11" 
-                  placeholder="••••••••"
-                  value={loginForm.password}
-                  onChange={(e) => setLoginForm({...loginForm, password: e.target.value})}
-                />
-                <button 
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-police-blue bg-white p-1 rounded-md"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-            <button 
-              type="submit"
-              className="w-full btn-primary py-4 text-base shadow-xl shadow-blue-900/20"
-            >
-              {t.signIn}
-              <ChevronRight className="w-5 h-5" />
-            </button>
-          </form>
-          
-          <div className="mt-8 pt-6 border-t border-slate-100 text-center">
-            <p className="text-[10px] text-slate-500 mb-2 font-ethiopic leading-relaxed">
-              የተዘጋጀው በቤንሻንጉል ጉሙዝ ክልል ፖሊስ ኮሚሽን ቴክኖሎጂ ማስፋፊያና መረጃ ክፍል (by D.INS B.Y)
-            </p>
-            <p className="text-[10px] text-slate-400 font-sans uppercase tracking-[0.2em]">{t.authOnly}</p>
-          </div>
-        </motion.div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-slate-50 pb-12 flex flex-col font-ethiopic">
-      {/* Header */}
-      <header className="bg-police-blue text-white shadow-lg no-print sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center relative gap-4">
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={() => { 
-                if (mode !== 'Investigator') setMode('Investigator'); 
-                else if (selectedCase) setSelectedCase(null); 
-                else if (currentCaseDocId) setCurrentCaseDocId(null);
-              }}
-              className={`p-2 bg-white/10 rounded-xl md:hidden ${(mode === 'Investigator' && !selectedCase && !currentCaseDocId) ? 'hidden' : 'block'}`}
-            >
-              <ChevronLeft className="w-5 h-5 text-white" />
-            </button>
+    <div className="min-h-screen bg-slate-100 flex flex-col font-ethiopic text-slate-800">
+      {!user ? (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-slate-100 p-4 w-full">
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8"
+          >
+            <div className="text-center mb-8">
+              <div className="w-20 h-20 bg-police-blue rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
+                 <Shield className="w-10 h-10 text-white" />
+              </div>
+              <h1 className="text-2xl font-bold text-slate-900 mb-2">{t.title}</h1>
+              <p className="text-slate-500 font-ethiopic">{t.subtitle}</p>
+            </div>
+
+            {error && (
+              <div className="mb-6 p-4 bg-red-50 text-red-700 text-sm rounded-xl border border-red-100 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4" />
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleLogin} className="space-y-6">
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase tracking-widest">{t.email}</label>
+                <div className="relative group">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-police-blue transition-colors">
+                    <User className="w-4 h-4" />
+                  </div>
+                  <input 
+                    type="email" 
+                    required
+                    className="input-field pl-11" 
+                    placeholder="officer@bgpolice.gov.et"
+                    value={loginForm.email}
+                    onChange={(e) => setLoginForm({...loginForm, email: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase tracking-widest">{t.password}</label>
+                <div className="relative group">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-police-blue transition-colors">
+                    <Fingerprint className="w-4 h-4" />
+                  </div>
+                  <input 
+                    type={showPassword ? "text" : "password"} 
+                    required
+                    className="input-field pl-11 pr-11" 
+                    placeholder="••••••••"
+                    value={loginForm.password}
+                    onChange={(e) => setLoginForm({...loginForm, password: e.target.value})}
+                  />
+                  <button 
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-police-blue bg-white p-1 rounded-md"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              <button 
+                type="submit"
+                className="w-full btn-primary py-4 text-base shadow-xl shadow-blue-900/20"
+              >
+                {t.signIn}
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </form>
+            
+            <div className="mt-8 pt-6 border-t border-slate-100 text-center">
+              <p className="text-[10px] text-slate-500 mb-2 font-ethiopic leading-relaxed">
+                የተዘጋጀው በቤንሻንጉል ጉሙዝ ክልል ፖሊስ ኮሚሽን ቴክኖሎጂ ማስፋፊያና መረጃ ክፍል (by D.INS B.Y)
+              </p>
+              <p className="text-[10px] text-slate-400 font-sans uppercase tracking-[0.2em]">{t.authOnly}</p>
+            </div>
+          </motion.div>
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col no-print">
+          {/* Header */}
+          <header className="bg-police-blue text-white shadow-lg sticky top-0 z-50">
+            <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center relative gap-4">
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={() => { 
+                    if (mode !== 'Investigator') setMode('Investigator'); 
+                    else if (selectedCase) setSelectedCase(null); 
+                    else if (currentCaseDocId) setCurrentCaseDocId(null);
+                  }}
+                  className={`p-2 bg-white/10 rounded-xl md:hidden ${(mode === 'Investigator' && !selectedCase && !currentCaseDocId) ? 'hidden' : 'block'}`}
+                >
+                  <ChevronLeft className="w-5 h-5 text-white" />
+                </button>
             <div className="w-10 h-10 md:w-12 md:h-12 bg-white rounded-2xl flex items-center justify-center shadow-lg transform -rotate-3 border-2 border-police-blue/20">
               <Shield className="w-6 h-6 md:w-8 md:h-8 text-police-blue" />
             </div>
@@ -1639,7 +1626,7 @@ export default function App() {
                       className="btn-secondary py-2 px-4 text-[10px] uppercase"
                     >
                       <PlusCircle className="w-4 h-4" />
-                      New Investigation
+                      {t.newInvestigation}
                     </button>
                     {currentCaseDocId && caseStatus !== 'Finalized' && (
                       <button 
@@ -1649,7 +1636,8 @@ export default function App() {
                               transcription: transcription,
                               updatedAt: serverTimestamp()
                             });
-                            alert("Draft Saved!");
+                            setShowSuccessToast(true);
+                            setTimeout(() => setShowSuccessToast(false), 3000);
                           } catch (err) {
                             console.error("Draft save error:", err);
                           }
@@ -1657,7 +1645,7 @@ export default function App() {
                         className="btn-secondary py-2 px-4 text-[10px] uppercase bg-blue-50 text-blue-700 border-blue-200"
                       >
                         <CloudCheck className="w-4 h-4" />
-                        Save Draft
+                        {t.saveDraft}
                       </button>
                     )}
                     <button 
@@ -1825,217 +1813,229 @@ export default function App() {
               </div>
             </div>
 
-            {/* Supervisor Monitor Modal */}
-            <AnimatePresence>
-              {selectedCase && (
-                <div className="modal-overlay" onClick={() => setSelectedCase(null)}>
-                    <motion.div 
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 20 }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="bg-white w-full md:max-w-5xl h-full md:h-[85vh] md:rounded-3xl shadow-2xl flex flex-col overflow-hidden relative"
-                    >
-                      <div className="p-5 md:p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                        <div>
-                          <div className="flex items-center gap-3 mb-1">
-                             <h3 className="text-xl md:text-2xl font-bold text-slate-900">{selectedCase.caseId}</h3>
-                             <span className="px-2 py-0.5 bg-police-blue text-white text-[9px] font-bold rounded-md uppercase">{t.liveFeed}</span>
-                          </div>
-                          <p className="text-xs md:text-sm text-slate-500 font-bold uppercase tracking-widest truncate max-w-[200px] md:max-w-none">
-                            {selectedCase.intervieweeName} • {t.statementReview}
-                          </p>
+            </div>
+          )}
+        </main>
+      </div>
+    )}
+
+    {/* Global Modals OUTSIDE auth check */}
+    {/* Supervisor Monitor / Case Details Modal */}
+    <AnimatePresence>
+      {selectedCase && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[1000] flex items-center justify-center p-0 md:p-4" onClick={() => setSelectedCase(null)}>
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white w-full md:max-w-5xl h-full md:h-[85vh] md:rounded-3xl shadow-2xl flex flex-col overflow-hidden relative"
+            >
+              <div className="p-5 md:p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <div>
+                  <div className="flex items-center gap-3 mb-1">
+                     <h3 className="text-xl md:text-2xl font-bold text-slate-900">{selectedCase.caseId}</h3>
+                     {selectedCase.status === 'Recording' && (
+                       <span className="px-2 py-0.5 bg-red-600 text-white text-[9px] font-bold rounded-md uppercase animate-pulse">{t.liveFeed}</span>
+                     )}
+                  </div>
+                  <p className="text-xs md:text-sm text-slate-500 font-bold uppercase tracking-widest truncate max-w-[200px] md:max-w-none">
+                    {selectedCase.intervieweeName} • {t.statementReview}
+                  </p>
+                </div>
+                <button onClick={() => setSelectedCase(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+              
+              <div className="flex-1 p-6 md:p-10 bg-white overflow-y-auto font-ethiopic">
+                <div className="max-w-3xl mx-auto border-l-4 border-police-blue/20 pl-4 md:pl-8">
+                  {selectedCase.status === 'Recording' && user && (
+                    <div className="mb-6 flex flex-col gap-4">
+                      <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                          <div className="w-2 h-2 rounded-full bg-red-600 animate-ping" />
+                          <span className="text-xs font-black text-red-600 uppercase tracking-widest italic font-sans">{t.activeSession}</span>
                         </div>
-                        <button onClick={() => setSelectedCase(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-                          <X className="w-5 h-5 text-slate-400" />
+                        <button 
+                          onClick={() => remoteStopCase(selectedCase.id)}
+                          className="px-4 py-2 bg-red-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-700 shadow-lg shadow-red-900/20 font-sans"
+                        >
+                          {t.remoteStop}
                         </button>
                       </div>
                       
-                      <div className="flex-1 p-6 md:p-10 bg-white overflow-y-auto">
-                        <div className="max-w-3xl mx-auto border-l-4 border-police-blue/20 pl-4 md:pl-8">
-                          {selectedCase.status === 'Recording' && (
-                            <div className="mb-6 flex flex-col gap-4">
-                              <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex justify-between items-center">
-                                <div className="flex items-center gap-3">
-                                  <div className="w-2 h-2 rounded-full bg-red-600 animate-ping" />
-                                  <span className="text-xs font-black text-red-600 uppercase tracking-widest">Active Investigation Session</span>
-                                </div>
-                                <button 
-                                  onClick={() => remoteStopCase(selectedCase.id)}
-                                  className="px-4 py-2 bg-red-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-700 shadow-lg shadow-red-900/20"
-                                >
-                                  {t.remoteStop}
-                                </button>
-                              </div>
-                              
-                              <div className="mb-8 p-6 bg-slate-900 rounded-3xl relative overflow-hidden group shadow-2xl">
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent z-10" />
-                                <div className="relative z-20 flex flex-col items-center justify-center py-10">
-                                  <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center animate-pulse mb-4">
-                                    <Video className="w-8 h-8 text-red-500" />
-                                  </div>
-                                  <p className="text-white font-black uppercase tracking-[0.2em] text-xs">Live Feed Active</p>
-                                  <p className="text-slate-400 text-[10px] mt-1 font-bold">MONITORING STATION BRAVO-9</p>
-                                </div>
-                                <div className="absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-1 bg-red-600 text-white rounded-full text-[9px] font-black uppercase tracking-widest animate-pulse">
-                                  <div className="w-2 h-2 rounded-full bg-white" />
-                                  Live Stream
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                          <p className="text-lg md:text-2xl leading-[1.8] font-ethiopic text-slate-800 whitespace-pre-line bg-slate-50 p-6 rounded-2xl border border-slate-100 italic">
-                            {selectedCase.transcription || t.establish}
-                          </p>
+                      <div className="mb-8 p-6 bg-slate-900 rounded-3xl relative overflow-hidden group shadow-2xl">
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent z-10" />
+                        <div className="relative z-20 flex flex-col items-center justify-center py-10">
+                          <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center animate-pulse mb-4">
+                            <Video className="w-8 h-8 text-red-500" />
+                          </div>
+                          <p className="text-white font-black uppercase tracking-[0.2em] text-xs font-sans">{t.liveFeed}</p>
+                          <p className="text-slate-400 text-[10px] mt-1 font-bold font-sans">{t.stationID}</p>
+                        </div>
+                        <div className="absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-1 bg-red-600 text-white rounded-full text-[9px] font-black uppercase tracking-widest animate-pulse font-sans">
+                          <div className="w-2 h-2 rounded-full bg-white" />
+                          {t.liveStream}
                         </div>
                       </div>
-
-                      <div className="p-5 md:p-6 bg-slate-900 text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                        <div className="grid grid-cols-2 md:flex gap-4 md:gap-8 text-[10px] md:text-xs font-bold text-slate-400 w-full md:w-auto">
-                           <div className="flex flex-col">
-                             <span>{t.officer}</span>
-                             <span className="text-white truncate">{selectedCase.detectiveName}</span>
-                           </div>
-                           <div className="flex flex-col">
-                             <span>{t.language}</span>
-                             <span className="text-white">{selectedCase.language}</span>
-                           </div>
-                           <div className="flex flex-col">
-                             <span>{t.status}</span>
-                             <span className={selectedCase.status === 'Recording' ? 'text-red-400' : 'text-green-400'}>{selectedCase.status}</span>
-                           </div>
-                        </div>
-                        <button 
-                          onClick={() => {
-                            setActivePrintId('case');
-                            setTimeout(() => window.print(), 300);
-                          }}
-                          className="w-full md:w-auto btn-primary bg-white text-police-blue hover:bg-slate-100 flex items-center justify-center gap-2 py-3 md:py-2"
-                        >
-                          <Download className="w-4 h-4" />
-                          {t.captureArchive}
-                        </button>
-                      </div>
-                    </motion.div>
+                    </div>
+                  )}
+                  <p className="text-lg md:text-2xl leading-[1.8] text-slate-800 whitespace-pre-line bg-slate-50 p-6 rounded-2xl border border-slate-100 italic">
+                    {selectedCase.transcription || t.establish}
+                  </p>
                 </div>
-              )}
-            </AnimatePresence>
+              </div>
 
-            {/* QR Scanner Modal */}
-            <AnimatePresence>
-              {showScanner && (
-                <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[1000] flex items-center justify-center p-4">
-                  <motion.div 
-                    initial={{ scale: 0.9, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    exit={{ scale: 0.9, opacity: 0 }}
-                    className="bg-white w-full max-w-md rounded-[2.5rem] overflow-hidden shadow-2xl relative"
+              <div className="p-5 md:p-6 bg-slate-900 text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="grid grid-cols-2 md:flex gap-4 md:gap-8 text-[10px] md:text-xs font-bold text-slate-400 w-full md:w-auto">
+                   <div className="flex flex-col">
+                     <span className="font-sans uppercase tracking-widest text-[8px]">{t.officer}</span>
+                     <span className="text-white truncate">{selectedCase.detectiveName}</span>
+                   </div>
+                   <div className="flex flex-col">
+                     <span className="font-sans uppercase tracking-widest text-[8px]">{t.language}</span>
+                     <span className="text-white">{selectedCase.language}</span>
+                   </div>
+                   <div className="flex flex-col">
+                     <span className="font-sans uppercase tracking-widest text-[8px]">{t.status}</span>
+                     <span className={selectedCase.status === 'Recording' ? 'text-red-400' : 'text-green-400'}>{selectedCase.status}</span>
+                   </div>
+                </div>
+                {user && (
+                  <button 
+                    onClick={() => {
+                      setActivePrintId('case');
+                      setTimeout(() => window.print(), 300);
+                    }}
+                    className="w-full md:w-auto btn-primary bg-white text-police-blue hover:bg-slate-100 flex items-center justify-center gap-2 py-3 md:py-2 font-sans tracking-widest text-[10px] font-black"
                   >
-                    <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                       <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
-                         <Scan className="w-6 h-6 text-police-blue" />
-                         {t.scanQR}
-                       </h2>
-                       <button onClick={() => setShowScanner(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
-                         <X className="w-5 h-5 text-slate-500" />
-                       </button>
-                    </div>
-                    <div className="p-8">
-                       <p className="text-center text-sm font-bold text-slate-500 mb-6 uppercase tracking-widest">{t.scanningTitle}</p>
-                       <div id="qr-reader" className="rounded-2xl overflow-hidden border-4 border-slate-100 shadow-inner bg-slate-50"></div>
-                       <div className="mt-8 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 py-3 rounded-xl border border-dashed border-slate-200">
-                          {t.establish}
-                       </div>
-                    </div>
-                  </motion.div>
-                </div>
-              )}
-            </AnimatePresence>
+                    <Download className="w-4 h-4" />
+                    {t.captureArchive}
+                  </button>
+                )}
+              </div>
+            </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
 
-            {/* Verification Result Modal */}
-            <AnimatePresence>
-              {(isVerifying || scanResult) && !showScanner && (
-                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[1000] flex items-center justify-center p-4" onClick={() => { setScanResult(null); setVerifiedCase(null); }}>
-                   <motion.div 
-                     initial={{ y: 50, opacity: 0 }}
-                     animate={{ y: 0, opacity: 1 }}
-                     exit={{ y: 50, opacity: 0 }}
-                     onClick={(e) => e.stopPropagation()}
-                     className="bg-white w-full max-w-lg rounded-[3rem] overflow-hidden shadow-2xl relative"
-                   >
-                      {isVerifying ? (
-                        <div className="p-20 text-center uppercase">
-                          <div className="w-12 h-12 border-4 border-police-blue border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                          <p className="font-black text-slate-400 tracking-widest">{t.processingSub}</p>
-                        </div>
-                      ) : (
-                        <div className="p-10">
-                          {verifiedCase ? (
-                            <div className="text-center">
-                              <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
-                                <ShieldCheck className="w-14 h-14 text-green-600" />
-                              </div>
-                              <h2 className="text-2xl font-black text-slate-900 mb-1">{t.verifySuccess}</h2>
-                              <p className="text-slate-500 text-sm font-bold uppercase tracking-widest mb-8">Official Database Entry Identified</p>
-                              
-                              <div className="bg-slate-50 border border-slate-100 rounded-3xl p-6 text-left space-y-4 mb-8">
-                                 <div className="flex justify-between items-start">
-                                   <div>
-                                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Case ID</span>
-                                     <p className="font-black text-xl text-police-blue">{verifiedCase.caseId}</p>
-                                   </div>
-                                   <div className="text-right">
-                                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Subject</span>
-                                     <p className="font-bold text-slate-800">{verifiedCase.intervieweeName}</p>
-                                   </div>
-                                 </div>
-                                 <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-200">
-                                   <div>
-                                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Investigator</span>
-                                     <p className="text-xs font-bold text-slate-600">{verifiedCase.detectiveName}</p>
-                                   </div>
-                                   <div>
-                                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Status</span>
-                                     <p className="text-xs font-bold text-green-600 uppercase">{verifiedCase.status}</p>
-                                   </div>
-                                 </div>
-                                 <div className="pt-4 border-t border-slate-200">
-                                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Transcription Snapshot</span>
-                                   <p className="text-sm font-ethiopic text-slate-600 line-clamp-3 mt-1 italic">{verifiedCase.transcription}</p>
-                                 </div>
-                              </div>
-                              
-                              <button 
-                                onClick={() => { setScanResult(null); setSelectedCase(verifiedCase); }}
-                                className="w-full btn-primary py-5 rounded-2xl text-lg shadow-xl shadow-blue-200"
-                              >
-                                {t.caseDetails}
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="text-center py-10">
-                              <div className="w-24 h-24 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                                 <AlertCircle className="w-14 h-14 text-red-600" />
-                              </div>
-                              <h2 className="text-2xl font-black text-slate-900 mb-2">{t.verifyFail}</h2>
-                              <p className="text-slate-500 mb-10 px-6 font-bold uppercase tracking-widest text-xs">{verificationError || "The scanned QR code does not match any official record in the regional investigation server."}</p>
-                              <button 
-                                onClick={() => setScanResult(null)}
-                                className="btn-secondary w-full py-5 rounded-2xl border-2"
-                              >
-                                Close Verification Window
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                   </motion.div>
+    {/* QR Scanner Modal */}
+    <AnimatePresence>
+      {showScanner && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[1000] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            className="bg-white w-full max-w-md rounded-[2.5rem] overflow-hidden shadow-2xl relative"
+          >
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+               <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                 <Scan className="w-6 h-6 text-police-blue" />
+                 {t.scanQR}
+               </h2>
+               <button onClick={() => setShowScanner(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                 <X className="w-5 h-5 text-slate-500" />
+               </button>
+            </div>
+            <div className="p-8">
+               <p className="text-center text-sm font-bold text-slate-500 mb-6 uppercase tracking-widest">{t.scanningTitle}</p>
+               <div 
+                 ref={qrScannerCallback}
+                 id="qr-reader" 
+                 className="rounded-2xl overflow-hidden border-4 border-slate-100 shadow-inner bg-slate-50"
+               ></div>
+               <div className="mt-8 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 py-3 rounded-xl border border-dashed border-slate-200">
+                  {t.establish}
+               </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+
+    {/* Verification Result Modal */}
+    <AnimatePresence>
+      {(isVerifying || scanResult) && !showScanner && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[1000] flex items-center justify-center p-4" onClick={() => { setScanResult(null); setVerifiedCase(null); }}>
+           <motion.div 
+             initial={{ y: 50, opacity: 0 }}
+             animate={{ y: 0, opacity: 1 }}
+             exit={{ y: 50, opacity: 0 }}
+             onClick={(e) => e.stopPropagation()}
+             className="bg-white w-full max-w-lg rounded-[3rem] overflow-hidden shadow-2xl relative"
+           >
+              {isVerifying ? (
+                <div className="p-20 text-center uppercase">
+                  <div className="w-12 h-12 border-4 border-police-blue border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                  <p className="font-black text-slate-400 tracking-widest">{t.processingSub}</p>
+                </div>
+              ) : (
+                <div className="p-10">
+                  {verifiedCase ? (
+                    <div className="text-center">
+                      <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                        <ShieldCheck className="w-14 h-14 text-green-600" />
+                      </div>
+                      <h2 className="text-2xl font-black text-slate-900 mb-1">{t.verifySuccess}</h2>
+                      <p className="text-slate-500 text-sm font-bold uppercase tracking-widest mb-8">{t.officialEntry}</p>
+                      
+                      <div className="bg-slate-50 border border-slate-100 rounded-3xl p-6 text-left space-y-4 mb-8">
+                         <div className="flex justify-between items-start">
+                           <div>
+                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t.caseId}</span>
+                             <p className="font-black text-xl text-police-blue">{verifiedCase.caseId}</p>
+                           </div>
+                           <div className="text-right">
+                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t.subjectName}</span>
+                             <p className="font-bold text-slate-800">{verifiedCase.intervieweeName}</p>
+                           </div>
+                         </div>
+                         <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-200">
+                           <div>
+                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t.officer}</span>
+                             <p className="text-xs font-bold text-slate-600">{verifiedCase.detectiveName}</p>
+                           </div>
+                           <div>
+                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t.status}</span>
+                             <p className="text-xs font-bold text-green-600 uppercase">{verifiedCase.status}</p>
+                           </div>
+                         </div>
+                         <div className="pt-4 border-t border-slate-200">
+                           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-sans">{t.snapshot}</span>
+                           <p className="text-sm font-ethiopic text-slate-600 line-clamp-3 mt-1 italic">{verifiedCase.transcription}</p>
+                         </div>
+                      </div>
+                      
+                      <button 
+                        onClick={() => { setScanResult(null); setSelectedCase(verifiedCase); }}
+                        className="w-full btn-primary py-5 rounded-2xl text-lg shadow-xl shadow-blue-200 font-sans tracking-widest font-black uppercase text-sm"
+                      >
+                        {t.caseDetails}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="text-center py-10">
+                      <div className="w-24 h-24 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                         <AlertCircle className="w-14 h-14 text-red-600" />
+                      </div>
+                      <h2 className="text-2xl font-black text-slate-900 mb-2">{t.verifyFail}</h2>
+                      <p className="text-slate-500 mb-10 px-6 font-bold uppercase tracking-widest text-xs font-sans">{verificationError || "The scanned QR code does not match any official record in the regional investigation server."}</p>
+                      <button 
+                        onClick={() => setScanResult(null)}
+                        className="btn-secondary w-full py-5 rounded-2xl border-2 font-sans font-bold uppercase tracking-widest text-xs"
+                      >
+                        Close Verification Window
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
-            </AnimatePresence>
-          </div>
-        )}
-      </main>
+           </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
 
       {/* Hidden Printable Official Document (Case) */}
       <div id="printable-report" className={`${activePrintId === 'case' ? 'print:block' : 'print:hidden'} hidden font-serif text-black p-0 leading-relaxed overflow-visible`}>
@@ -2044,7 +2044,7 @@ export default function App() {
           <div className="text-center mb-10 border-b-2 border-black pb-8 relative">
              <div className="absolute top-0 right-0">
                 <QRCodeCanvas 
-                  value={`${translations.AM.verifyUrl}?verify=${caseInfo.caseId || 'UNK'}`} 
+                  value={`${window.location.origin}${window.location.pathname}?verify=${caseInfo.caseId || 'UNK'}`} 
                   size={95}
                   level="H"
                   includeMargin={false}
