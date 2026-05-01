@@ -136,7 +136,6 @@ const translations = {
     monitoring: "Monitoring",
     noFeeds: "No active feeds detected",
     feedSub: "Regional investigation activity is currently idle.",
-    liveFeed: "Live Feed",
     statementReview: "Statement Review",
     captureArchive: "Capture Archive",
     establish: "Establishing secure connection to regional node...",
@@ -147,6 +146,9 @@ const translations = {
     complainants: "Complainants",
     caseStatusStats: "Case Status Distribution",
     languageStats: "Language Distribution",
+    liveFeed: "LIVE MONITORING",
+    stopRecording: "Stop Recording",
+    startRecording: "Start Recording",
     generateReport: "Generate Official Report",
     printReport: "Print Statistics Report",
     recordingTypes: "Recording Types",
@@ -208,7 +210,6 @@ const translations = {
     monitoring: "ክትትል",
     noFeeds: "ምንም ንቁ ስራ አልተገኘም",
     feedSub: "የክልሉ የምርመራ እንቅስቃሴ በአሁኑ ጊዜ ስራ የለም።",
-    liveFeed: "የቀጥታ ስርጭት",
     statementReview: "የቃል ምርመራ ክትትል",
     captureArchive: "መረጃውን አትም/አስቀምጥ",
     establish: "ከክልል ማእከል ጋር ግንኙነት እየተፈጠረ ነው...",
@@ -219,6 +220,9 @@ const translations = {
     complainants: "ከሳሾች",
     caseStatusStats: "የመዝገቦች ሁኔታ ስርጭት",
     languageStats: "የቋንቋዎች ስርጭት",
+    liveFeed: "የቀጥታ ስርጭት (LIVE)",
+    stopRecording: "ቀረጻ አቁም",
+    startRecording: "መቅዳት ጀምር",
     generateReport: "ይፋዊ ሪፖርት አውጣ",
     printReport: "የስታቲስቲክስ ሪፖርት አትም",
     recordingTypes: "የመቅጃ አይነቶች",
@@ -467,6 +471,12 @@ export default function App() {
     }
   }, [currentCaseDocId, user]);
 
+   useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -625,13 +635,14 @@ export default function App() {
     }
   };
 
-  const selectCaseForEditing = (c: CaseRecord) => {
+   const selectCaseForEditing = (c: CaseRecord) => {
     setCaseInfo({
       caseId: c.caseId,
       detectiveName: c.detectiveName,
       intervieweeName: c.intervieweeName,
       personType: c.personType,
-      language: c.language
+      language: c.language,
+      recordingMode: (c as any).recordingMode || 'Audio'
     });
     setTranscription(c.transcription);
     setCaseStatus(c.status);
@@ -1354,13 +1365,18 @@ export default function App() {
                       <button 
                         onClick={startRecording} 
                         disabled={isProcessing || caseStatus === 'Finalized'} 
-                        className="w-16 h-16 bg-red-600 rounded-full hover:bg-red-700 flex items-center justify-center disabled:opacity-30 shadow-lg transition-transform active:scale-95"
+                        className="btn-primary w-full py-4 text-lg bg-green-600 hover:bg-green-700 shadow-green-900/20"
                       >
-                        <Mic className="w-6 h-6 text-white" />
+                        <Mic className="w-6 h-6" />
+                        {t.startRecording}
                       </button>
                     ) : (
-                      <button onClick={stopRecording} className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95">
-                        <Square className="w-6 h-6 text-slate-900 fill-slate-900" />
+                      <button 
+                        onClick={stopRecording} 
+                        className="btn-primary w-full py-4 text-lg bg-red-600 hover:bg-red-700 shadow-red-900/20"
+                      >
+                        <Square className="w-6 h-6" />
+                        {t.stopRecording}
                       </button>
                     )}
                   </div>
@@ -1422,57 +1438,29 @@ export default function App() {
 
             {/* Right Column: Transcription/Translation */}
             <div className={`lg:col-span-8 space-y-6 ${currentCaseDocId ? 'block' : 'hidden lg:block'}`}>
-              <div className="card flex flex-col h-[500px] md:h-[650px] shadow-xl overflow-hidden">
+              <div className="card flex flex-col h-[500px] md:h-[750px] shadow-xl overflow-hidden">
                 <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                   <div className="flex items-center gap-3">
                     <div className={`w-2 h-2 rounded-full ${caseStatus === 'Recording' ? 'bg-red-500 animate-ping' : 'bg-green-500'}`} />
-                    <h3 className="font-bold text-slate-800">{t.statementReview}</h3>
+                    <h3 className="font-bold text-slate-800 text-xs uppercase tracking-widest">{t.statementReview}</h3>
                   </div>
                   <div className="flex gap-2">
                     <button 
                       onClick={() => {
-                        setCaseInfo({
-                          caseId: generateCaseId(),
-                          detectiveName: user?.displayName || '',
-                          intervieweeName: '',
-                          personType: 'Witness',
-                          language: 'Amharic'
-                        });
-                        setTranscription('');
-                        setCaseStatus('Draft');
                         setCurrentCaseDocId(null);
-                        setDuration(0);
-                        setRecordCount(0);
+                        setTranscription('');
+                        setCaseStatus('Initial');
                       }}
                       disabled={isRecording}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold bg-white text-police-blue border-2 border-police-blue hover:bg-police-blue hover:text-white transition-all disabled:opacity-50"
+                      className="btn-secondary py-2 px-4 text-[10px] uppercase"
                     >
                       <PlusCircle className="w-4 h-4" />
                       New Investigation
                     </button>
-                    {isAdmin && currentCaseDocId && (
-                      <button 
-                         onClick={() => {
-                           // Logic to download raw text or state
-                           const blob = new Blob([transcription], {type: 'text/plain'});
-                           const url = URL.createObjectURL(blob);
-                           const a = document.createElement('a');
-                           a.href = url;
-                           a.download = `case_${caseInfo.caseId}_audio_log.txt`;
-                           a.click();
-                         }}
-                         className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold bg-amber-500 text-white hover:bg-amber-600 shadow-lg shadow-amber-100"
-                      >
-                         <Download className="w-4 h-4" />
-                         Audio Log
-                      </button>
-                    )}
                     <button 
                       onClick={finalizeAndPrint} 
                       disabled={!transcription || caseStatus === 'Recording'} 
-                      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
-                        caseStatus === 'Finalized' ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700 shadow-lg shadow-green-100'
-                      }`}
+                      className="btn-primary py-2 px-4 shadow-none text-[10px] uppercase"
                     >
                       <Printer className="w-4 h-4" />
                       {t.finalize}
@@ -1480,25 +1468,25 @@ export default function App() {
                   </div>
                 </div>
                 
-                <div className="flex-1 p-8 relative overflow-hidden">
+                <div className="flex-1 p-8 relative overflow-hidden bg-white">
                   <AnimatePresence>
                     {isProcessing && (
                       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-white/95 flex flex-col items-center justify-center z-10 backdrop-blur-sm">
                         <Loader2 className="w-12 h-12 text-police-blue animate-spin mb-4" />
-                        <span className="font-bold text-police-blue">{t.processing}</span>
-                        <p className="text-slate-400 text-sm mt-2 font-ethiopic">{t.processingSub}</p>
+                        <span className="font-bold text-police-blue uppercase tracking-widest text-xs">{t.processing}</span>
+                        <p className="text-slate-400 text-[10px] mt-2 font-ethiopic uppercase">{t.processingSub}</p>
                       </motion.div>
                     )}
                   </AnimatePresence>
                   <textarea 
-                    className="w-full h-full resize-none border-none focus:ring-0 text-xl leading-relaxed font-ethiopic text-slate-800 placeholder:text-slate-300"
+                    className="w-full h-full resize-none border-none focus:ring-0 text-xl md:text-2xl leading-relaxed font-ethiopic text-slate-800 placeholder:text-slate-200"
                     value={transcription}
                     onChange={(e) => setTranscription(e.target.value)}
                     readOnly={caseStatus === 'Finalized'}
                     placeholder={t.placeholder}
                   />
                   {caseStatus === 'Finalized' && (
-                    <div className="absolute top-4 right-4 bg-amber-50 text-amber-700 text-[10px] font-bold px-2 py-1 rounded-md border border-amber-200">
+                    <div className="absolute top-4 right-4 bg-amber-50 text-amber-700 text-[10px] font-bold px-3 py-1.5 rounded-full border border-amber-200 shadow-sm">
                       {t.locked}
                     </div>
                   )}
@@ -1542,13 +1530,16 @@ export default function App() {
                     {filteredCases.map((c) => (
                       <tr key={c.id} className="hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => setSelectedCase(c)}>
                         <td className="px-6 py-5">
-                          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border ${
-                            c.status === 'Recording' ? 'bg-red-50 text-red-600 border-red-100 animate-pulse' :
-                            c.status === 'Finalized' ? 'bg-green-50 text-green-600 border-green-100' :
-                            'bg-blue-50 text-blue-600 border-blue-100'
-                          }`}>
-                            {c.status}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border flex items-center gap-1.5 ${
+                              c.status === 'Recording' ? 'bg-red-50 text-red-600 border-red-100 animate-pulse' :
+                              c.status === 'Finalized' ? 'bg-green-50 text-green-600 border-green-100' :
+                              'bg-blue-50 text-blue-600 border-blue-100'
+                            }`}>
+                              {c.status === 'Recording' && <div className="w-1.5 h-1.5 rounded-full bg-red-600 animate-ping" />}
+                              {c.status}
+                            </span>
+                          </div>
                         </td>
                         <td className="px-6 py-5">
                           <div className="font-bold text-slate-800">{c.caseId}</div>
@@ -1622,7 +1613,23 @@ export default function App() {
                       
                       <div className="flex-1 p-6 md:p-10 bg-white overflow-y-auto">
                         <div className="max-w-3xl mx-auto border-l-4 border-police-blue/20 pl-4 md:pl-8">
-                          <p className="text-lg md:text-2xl leading-[1.8] font-ethiopic text-slate-800 whitespace-pre-line">
+                          {selectedCase.status === 'Recording' && (
+                            <div className="mb-8 p-6 bg-slate-900 rounded-3xl relative overflow-hidden group shadow-2xl">
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent z-10" />
+                              <div className="relative z-20 flex flex-col items-center justify-center py-10">
+                                <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center animate-pulse mb-4">
+                                  <Video className="w-8 h-8 text-red-500" />
+                                </div>
+                                <p className="text-white font-black uppercase tracking-[0.2em] text-xs">Live Feed Active</p>
+                                <p className="text-slate-400 text-[10px] mt-1 font-bold">MONITORING STATION BRAVO-9</p>
+                              </div>
+                              <div className="absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-1 bg-red-600 text-white rounded-full text-[9px] font-black uppercase tracking-widest animate-pulse">
+                                <div className="w-2 h-2 rounded-full bg-white" />
+                                Live Stream
+                              </div>
+                            </div>
+                          )}
+                          <p className="text-lg md:text-2xl leading-[1.8] font-ethiopic text-slate-800 whitespace-pre-line bg-slate-50 p-6 rounded-2xl border border-slate-100 italic">
                             {selectedCase.transcription || t.establish}
                           </p>
                         </div>
