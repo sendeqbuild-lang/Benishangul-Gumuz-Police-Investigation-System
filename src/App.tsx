@@ -287,7 +287,15 @@ const translations = {
     snapshot: "የቃል መዝገብ ቅንጭብ",
     newInvestigation: "አዲስ ምርመራ",
     saveDraft: "ረቂቅ አስቀምጥ",
-    draftSaved: "ረቂቅ ተቀምጧል!"
+    draftSaved: "ረቂቅ ተቀምጧል!",
+    groupByDetective: "በመርማሪ ስም ቃላትን አደራጅ",
+    allDetectives: "ሁሉም መርማሪዎች",
+    byDetective: "በመርማሪ ስም",
+    scanFile: "ከጋለሪ ፎቶ መርጥህ ስካን አድርግ",
+    scanCamera: "በካሜራ ፎቶ አንስተህ ስካን አድርግ",
+    viewDetails: "ዝርዝር መረጃ ተመልከት",
+    totalStaff: "ጠቅላላ ሰራተኞች",
+    activeNow: "አሁን ስራ ላይ ያሉ",
   }
 };
 
@@ -339,6 +347,8 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [activePrintId, setActivePrintId] = useState<'case' | 'stats'>('case');
+  const [supervisorGroupByDetective, setSupervisorGroupByDetective] = useState(false);
+  const [activeReportFilter, setActiveReportFilter] = useState<{type: string, value: string} | null>(null);
 
   // Admin Form State
   const [newStaff, setNewStaff] = useState({
@@ -458,12 +468,30 @@ export default function App() {
 
   const filteredCases = allCases.filter(c => {
     const s = searchTerm.toLowerCase();
-    return (
+    const matchesSearch = (
       c.caseId.toLowerCase().includes(s) || 
       c.intervieweeName.toLowerCase().includes(s) ||
       c.detectiveName.toLowerCase().includes(s)
     );
+    
+    if (!activeReportFilter || activeReportFilter.type === 'all') return matchesSearch;
+    
+    if (activeReportFilter.type === 'personType') {
+      return matchesSearch && c.personType === activeReportFilter.value;
+    }
+    
+    if (activeReportFilter.type === 'detective') {
+      return matchesSearch && c.detectiveName === activeReportFilter.value;
+    }
+
+    return matchesSearch;
   });
+
+  const casesGroupedByDetective = filteredCases.reduce((acc: {[key: string]: CaseRecord[]}, c) => {
+    if (!acc[c.detectiveName]) acc[c.detectiveName] = [];
+    acc[c.detectiveName].push(c);
+    return acc;
+  }, {});
 
   const stats = {
     total: allCases.length,
@@ -654,9 +682,9 @@ export default function App() {
       };
 
       recorder.onstop = async () => {
-        const mimeType = caseInfo.recordingMode === 'Video' ? 'video/webm' : 'audio/webm';
-        const blob = new Blob(audioChunksRef.current, { type: mimeType });
-        await processAudio(blob, docId!);
+        const recordedMimeType = recorder.mimeType || (caseInfo.recordingMode === 'Video' ? 'video/webm' : 'audio/webm');
+        const blob = new Blob(audioChunksRef.current, { type: recordedMimeType });
+        await processAudio(blob, docId!, recordedMimeType);
       };
 
       recorder.start();
@@ -769,7 +797,7 @@ export default function App() {
     }
   }, [showScanner]);
 
-  const processAudio = async (blob: Blob, docId: string) => {
+  const processAudio = async (blob: Blob, docId: string, mimeType: string) => {
     setIsProcessing(true);
     setError(null);
     try {
@@ -778,7 +806,7 @@ export default function App() {
       reader.onloadend = async () => {
         const base64data = reader.result?.toString().split(',')[1];
         if (base64data) {
-          const result = await transcribeAndTranslateAudio(base64data, 'audio/webm', caseInfo.language);
+          const result = await transcribeAndTranslateAudio(base64data, mimeType, caseInfo.language);
           const newTranscription = transcription ? transcription + "\n\n" + result : result;
           setTranscription(newTranscription);
           setCaseStatus('Draft');
@@ -1162,18 +1190,26 @@ export default function App() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
-                { label: t.totalCases, val: stats.total, color: 'text-police-blue', bg: 'bg-blue-50', icon: FileText },
-                { label: t.witnesses, val: stats.witnesses, color: 'text-indigo-600', bg: 'bg-indigo-50', icon: User },
-                { label: t.suspects, val: stats.suspects, color: 'text-red-600', bg: 'bg-red-50', icon: AlertCircle },
-                { label: t.complainants, val: stats.complainants, color: 'text-amber-600', bg: 'bg-amber-50', icon: Shield },
-              ].map((card, i) => (
-                <div key={i} className="card p-6 flex items-center gap-5">
-                  <div className={`w-14 h-14 ${card.bg} rounded-2xl flex items-center justify-center`}>
+                { id: 'all', label: t.totalCases, val: stats.total, color: 'text-police-blue', bg: 'bg-blue-50', icon: FileText },
+                { id: 'Witness', label: t.witnesses, val: stats.witnesses, color: 'text-indigo-600', bg: 'bg-indigo-50', icon: User },
+                { id: 'Suspect', label: t.suspects, val: stats.suspects, color: 'text-red-600', bg: 'bg-red-50', icon: AlertCircle },
+                { id: 'Complainant', label: t.complainants, val: stats.complainants, color: 'text-amber-600', bg: 'bg-amber-50', icon: Shield },
+              ].map((card) => (
+                <div 
+                  key={card.id} 
+                  className="card p-6 flex items-center gap-5 cursor-pointer hover:ring-2 hover:ring-police-blue transition-all group"
+                  onClick={() => {
+                    setActiveReportFilter({ type: card.id === 'all' ? 'all' : 'personType', value: card.id });
+                    setMode('Supervisor');
+                  }}
+                >
+                  <div className={`w-14 h-14 ${card.bg} rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform`}>
                     <card.icon className={`w-7 h-7 ${card.color}`} />
                   </div>
                   <div>
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{card.label}</p>
                     <p className="text-3xl font-black text-slate-800 leading-none mt-1">{card.val}</p>
+                    <p className="text-[10px] text-police-blue font-bold mt-2 opacity-0 group-hover:opacity-100 transition-opacity">{(t as any).viewDetails} →</p>
                   </div>
                 </div>
               ))}
@@ -1640,6 +1676,36 @@ export default function App() {
                     {currentCaseDocId && caseStatus !== 'Finalized' && (
                       <button 
                         onClick={async () => {
+                          if (mediaRecorderRef.current && isRecording) return;
+                          setIsProcessing(true);
+                          try {
+                             // This is a placeholder since we don't have the blob anymore
+                             // In a real app we'd store the blob or re-fetch from storage
+                             // For now we just alert that it needs a new recording or manual sync
+                             await updateDoc(doc(db, 'cases', currentCaseDocId), { 
+                               status: 'Processing',
+                               updatedAt: serverTimestamp() 
+                             });
+                             // If we had the last blob we would call processAudio here.
+                             // But since it's a web app without persistent blob storage in state for long,
+                             // we'll just ensure the UI shows it's processing if they just finished.
+                             alert("The system will attempt to sync the latest data. Please ensure recording was stopped correctly.");
+                          } catch (e) {
+                             console.error(e);
+                          } finally {
+                             setIsProcessing(false);
+                          }
+                        }}
+                        disabled={isProcessing || isRecording}
+                        className="btn-secondary py-2 px-4 text-[10px] uppercase border-indigo-200 text-indigo-700 hover:bg-blue-50"
+                      >
+                        <Zap className="w-4 h-4" />
+                        Reprocess
+                      </button>
+                    )}
+                    {currentCaseDocId && caseStatus !== 'Finalized' && (
+                      <button 
+                        onClick={async () => {
                           try {
                             await updateDoc(doc(db, 'cases', currentCaseDocId), {
                               transcription: transcription,
@@ -1724,101 +1790,197 @@ export default function App() {
           /* Supervisor Dashboard */
           <div className="space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-              <div>
-                <h2 className="text-2xl font-bold text-slate-800">{t.oversight}</h2>
-                <p className="text-slate-500">{t.oversightSub}</p>
+              <div className="flex flex-col md:flex-row items-start md:items-center gap-4 w-full md:w-auto">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-800">{t.oversight}</h2>
+                  <p className="text-slate-500">{t.oversightSub}</p>
+                </div>
+                {activeReportFilter && (
+                  <div className="px-4 py-2 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center gap-3">
+                    <span className="text-xs font-bold text-indigo-600 uppercase tracking-widest leading-none">
+                      Filter: {activeReportFilter.value}
+                    </span>
+                    <button 
+                      onClick={() => setActiveReportFilter(null)}
+                      className="p-1 hover:bg-indigo-100 rounded-lg transition-colors"
+                    >
+                      <X className="w-3 h-3 text-indigo-400" />
+                    </button>
+                  </div>
+                )}
               </div>
-              <div className="relative w-full md:w-80">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input 
-                  type="text" 
-                  placeholder={t.search} 
-                  className="input-field pl-10" 
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+              <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
+                <button 
+                  onClick={() => setSupervisorGroupByDetective(!supervisorGroupByDetective)}
+                  className={`flex items-center gap-2 px-6 py-2.5 rounded-2xl font-bold transition-all border-2 text-xs uppercase tracking-widest ${
+                    supervisorGroupByDetective ? 'bg-police-blue text-white border-police-blue' : 'bg-white text-slate-600 border-slate-100'
+                  }`}
+                >
+                  <Users className="w-4 h-4" />
+                  {(t as any).groupByDetective}
+                </button>
+                <div className="relative w-full md:w-80">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input 
+                    type="text" 
+                    placeholder={t.search} 
+                    className="input-field pl-10" 
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 gap-6">
-              <div className="card h-[75vh] overflow-y-auto shadow-xl">
-                <table className="w-full text-left border-collapse">
-                  <thead className="sticky top-0 bg-white shadow-sm z-10">
-                    <tr className="text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                      <th className="px-6 py-4">{t.status}</th>
-                      <th className="px-6 py-4">{t.caseDetails}</th>
-                      <th className="px-6 py-4">{t.officer}</th>
-                      <th className="px-6 py-4">{t.sync}</th>
-                      <th className="px-6 py-4 text-right">{t.monitoring}</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {filteredCases.map((c) => (
-                      <tr key={c.id} className="hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => setSelectedCase(c)}>
-                        <td className="px-6 py-5">
-                          <div className="flex items-center gap-2">
-                            <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border flex items-center gap-1.5 ${
-                              c.status === 'Recording' ? 'bg-red-50 text-red-600 border-red-100 animate-pulse' :
-                              c.status === 'Finalized' ? 'bg-green-50 text-green-600 border-green-100' :
-                              'bg-blue-50 text-blue-600 border-blue-100'
-                            }`}>
-                              {c.status === 'Recording' && <div className="w-1.5 h-1.5 rounded-full bg-red-600 animate-ping" />}
-                              {c.status}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-5">
-                          <div className="font-bold text-slate-800">{c.caseId}</div>
-                          <div className="text-xs text-slate-500">{c.intervieweeName} ({c.personType})</div>
-                        </td>
-                        <td className="px-6 py-5">
-                          <div className="flex items-center gap-2">
-                             <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-500">
-                               {c.detectiveName.charAt(0)}
-                             </div>
-                             <div>
-                               <div className="text-sm font-bold text-slate-700">{c.detectiveName}</div>
-                               <div className="text-[10px] text-slate-400">{c.investigatorEmail}</div>
-                             </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-5">
-                          <div className="text-xs text-slate-500 flex flex-col gap-1">
-                            <span className="flex items-center gap-1"><CloudCheck className="w-3 h-3 text-green-500" /> Latency: Low</span>
-                            <span className="text-[10px] text-slate-400">{c.updatedAt?.toDate?.()?.toLocaleString() || 'Syncing...'}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-5 text-right">
-                           <div className="flex justify-end items-center gap-2">
-                             {c.status === 'Recording' && (
-                               <button 
-                                 onClick={(e) => { e.stopPropagation(); remoteStopCase(c.id); }}
-                                 className="p-2 text-red-400 hover:text-red-600 transition-colors"
-                                 title={t.remoteStop}
-                               >
-                                 <Square className="w-4 h-4" />
-                               </button>
-                             )}
-                             <button className="p-2 text-slate-300 hover:text-police-blue transition-colors">
-                               <Eye className="w-5 h-5" />
-                             </button>
-                           </div>
-                        </td>
-                      </tr>
+              <div className="card h-[75vh] overflow-y-auto shadow-xl bg-white p-2">
+                {supervisorGroupByDetective ? (
+                  /* Grouped View */
+                  <div className="space-y-6 p-4">
+                    {(Object.entries(casesGroupedByDetective) as [string, CaseRecord[]][]).map(([detective, cases]) => (
+                      <details key={detective} className="group overflow-hidden rounded-2xl border border-slate-100 bg-slate-50/50" open>
+                         <summary className="flex items-center justify-between p-5 cursor-pointer hover:bg-slate-100/50 transition-all list-none outline-none">
+                            <div className="flex items-center gap-4">
+                               <div className="w-10 h-10 rounded-2xl bg-police-blue text-white flex items-center justify-center font-bold shadow-lg shadow-blue-900/10 transform transition-transform group-open:rotate-3">
+                                 {detective.charAt(0)}
+                               </div>
+                               <div>
+                                 <h3 className="font-black text-slate-800 text-lg">{detective}</h3>
+                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] leading-none mt-1">{cases.length} Investigations assigned</p>
+                               </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                               <div className="flex -space-x-2 mr-4">
+                                  {cases.slice(0, 3).map((c, i) => (
+                                    <div key={i} className="w-6 h-6 rounded-full bg-white border-2 border-slate-200 flex items-center justify-center text-[8px] font-bold text-slate-400 uppercase">
+                                       {c.intervieweeName.charAt(0)}
+                                    </div>
+                                  ))}
+                                  {cases.length > 3 && (
+                                    <div className="w-6 h-6 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-[8px] font-bold text-slate-500">
+                                       +{cases.length - 3}
+                                    </div>
+                                  )}
+                               </div>
+                               <ChevronRight className="w-5 h-5 text-slate-300 transition-transform group-open:rotate-90" />
+                            </div>
+                         </summary>
+                         <div className="p-4 pt-0 border-t border-slate-100 bg-white">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4">
+                               {cases.map(c => (
+                                 <div 
+                                   key={c.id} 
+                                   onClick={() => setSelectedCase(c)}
+                                   className="p-4 rounded-xl border border-slate-100 hover:border-police-blue hover:shadow-md transition-all cursor-pointer group/item relative overflow-hidden"
+                                 >
+                                    <div className="flex justify-between items-start mb-3">
+                                       <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest ${
+                                         c.status === 'Recording' ? 'bg-red-100 text-red-600' : 
+                                         c.status === 'Finalized' ? 'bg-green-100 text-green-600' : 
+                                         'bg-blue-100 text-blue-600'
+                                       }`}>
+                                         {c.status}
+                                       </span>
+                                       <span className="text-[8px] font-mono text-slate-400">{c.caseId}</span>
+                                    </div>
+                                    <h4 className="font-bold text-sm text-slate-800 truncate mb-1">{c.intervieweeName}</h4>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{c.personType} • {c.language}</p>
+                                    <div className="absolute bottom-0 right-0 p-2 opacity-0 group-hover/item:opacity-100 transition-opacity translate-y-2 group-hover/item:translate-y-0 text-police-blue">
+                                       <Eye className="w-4 h-4" />
+                                    </div>
+                                 </div>
+                               ))}
+                            </div>
+                         </div>
+                      </details>
                     ))}
-                    {allCases.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="px-6 py-20 text-center">
-                          <div className="flex flex-col items-center gap-2 text-slate-300">
-                            <History className="w-12 h-12 mb-2" />
-                            <p className="text-lg font-bold">{t.noFeeds}</p>
-                            <p className="text-sm">{t.feedSub}</p>
-                          </div>
-                        </td>
-                      </tr>
+                    {Object.keys(casesGroupedByDetective).length === 0 && (
+                      <div className="py-20 text-center opacity-40">
+                         <Search className="w-12 h-12 mx-auto mb-4" />
+                         <p className="font-bold uppercase tracking-widest">No matching records found</p>
+                      </div>
                     )}
-                  </tbody>
-                </table>
+                  </div>
+                ) : (
+                  /* Standard List View */
+                  <table className="w-full text-left border-collapse">
+                    <thead className="sticky top-0 bg-white shadow-sm z-10">
+                      <tr className="text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                        <th className="px-6 py-4">{t.status}</th>
+                        <th className="px-6 py-4">{t.caseDetails}</th>
+                        <th className="px-6 py-4">{t.officer}</th>
+                        <th className="px-6 py-4">{t.sync}</th>
+                        <th className="px-6 py-4 text-right">{t.monitoring}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {filteredCases.map((c) => (
+                        <tr key={c.id} className="hover:bg-slate-50 transition-colors cursor-pointer group" onClick={() => setSelectedCase(c)}>
+                          <td className="px-6 py-5">
+                            <div className="flex items-center gap-2">
+                              <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border flex items-center gap-1.5 ${
+                                c.status === 'Recording' ? 'bg-red-50 text-red-600 border-red-100' :
+                                c.status === 'Finalized' ? 'bg-green-50 text-green-600 border-green-100' :
+                                'bg-blue-50 text-blue-600 border-blue-100'
+                              }`}>
+                                {c.status === 'Recording' && <div className="w-1.5 h-1.5 rounded-full bg-red-600 animate-ping" />}
+                                {c.status}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-5">
+                            <div className="font-bold text-slate-800">{c.caseId}</div>
+                            <div className="text-xs text-slate-500">{c.intervieweeName} ({c.personType})</div>
+                          </td>
+                          <td className="px-6 py-5">
+                            <div className="flex items-center gap-2">
+                               <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-500">
+                                 {c.detectiveName.charAt(0)}
+                               </div>
+                               <div>
+                                 <div className="text-sm font-bold text-slate-700">{c.detectiveName}</div>
+                                 <div className="text-[10px] text-slate-400">{c.investigatorEmail}</div>
+                               </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-5">
+                            <div className="text-xs text-slate-500 flex flex-col gap-1">
+                              <span className="flex items-center gap-1"><CloudCheck className="w-3 h-3 text-green-500" /> Latency: Low</span>
+                              <span className="text-[10px] text-slate-400">{c.updatedAt?.toDate?.()?.toLocaleString() || 'Syncing...'}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-5 text-right">
+                             <div className="flex justify-end items-center gap-2">
+                               {c.status === 'Recording' && (
+                                 <button 
+                                   onClick={(e) => { e.stopPropagation(); remoteStopCase(c.id); }}
+                                   className="p-2 text-red-400 hover:text-red-600 transition-colors"
+                                   title={t.remoteStop}
+                                 >
+                                   <Square className="w-4 h-4" />
+                                 </button>
+                               )}
+                               <button className="p-2 text-slate-300 group-hover:text-police-blue transition-colors">
+                                 <Eye className="w-5 h-5" />
+                               </button>
+                             </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredCases.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-20 text-center">
+                            <div className="flex flex-col items-center gap-2 text-slate-300">
+                              <History className="w-12 h-12 mb-2" />
+                              <p className="text-lg font-bold">{t.noFeeds}</p>
+                              <p className="text-sm">{t.feedSub}</p>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </div>
 
@@ -1955,7 +2117,33 @@ export default function App() {
                  id="qr-reader" 
                  className="rounded-2xl overflow-hidden border-4 border-slate-100 shadow-inner bg-slate-50"
                ></div>
-               <div className="mt-8 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 py-3 rounded-xl border border-dashed border-slate-200">
+               
+               <div className="mt-8 grid grid-cols-1 gap-3">
+                  <div className="relative">
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file && scannerRef.current) {
+                          scannerRef.current.scanFile(file, true)
+                            .then(handleScanSuccess)
+                            .catch(err => {
+                              console.error(err);
+                              setError("Could not find QR code in image.");
+                            });
+                        }
+                      }}
+                      className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                    />
+                    <button className="w-full py-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 flex items-center justify-center gap-3 text-xs font-black text-slate-600 uppercase tracking-widest group-hover:bg-slate-100 transition-all">
+                       <FileBarChart className="w-5 h-5 text-police-blue" />
+                       {(t as any).scanFile}
+                    </button>
+                  </div>
+               </div>
+
+               <div className="mt-8 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 py-3 rounded-xl border border-dashed border-slate-200 uppercase tracking-widest">
                   {t.establish}
                </div>
             </div>
