@@ -34,7 +34,8 @@ import {
   X,
   ChevronLeft,
   UserCheck,
-  Users
+  Users,
+  Pause
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { transcribeAndTranslateAudio } from './lib/gemini';
@@ -149,6 +150,9 @@ const translations = {
     liveFeed: "LIVE MONITORING",
     stopRecording: "Stop Recording",
     startRecording: "Start Recording",
+    pauseRecording: "Pause",
+    resumeRecording: "Resume",
+    remoteStop: "Force Stop Recording",
     generateReport: "Generate Official Report",
     printReport: "Print Statistics Report",
     recordingTypes: "Recording Types",
@@ -223,6 +227,9 @@ const translations = {
     liveFeed: "የቀጥታ ስርጭት (LIVE)",
     stopRecording: "ቀረጻ አቁም",
     startRecording: "መቅዳት ጀምር",
+    pauseRecording: "ለጊዜው አቁም",
+    resumeRecording: "ቀጥል",
+    remoteStop: "ቀረጻውን በግዴታ አቁም",
     generateReport: "ይፋዊ ሪፖርት አውጣ",
     printReport: "የስታቲስቲክስ ሪፖርት አትም",
     recordingTypes: "የመቅጃ አይነቶች",
@@ -259,13 +266,14 @@ export default function App() {
   const t = translations[uiLanguage];
   const [mode, setMode] = useState<'Investigator' | 'Supervisor' | 'Admin' | 'Reports'>('Investigator');
   const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
-  const [recordCount, setRecordCount] = useState(0); // Tracking repeat recordings
+  const [recordCount, setRecordCount] = useState(0); 
   const [isProcessing, setIsProcessing] = useState(false);
   const [transcription, setTranscription] = useState('');
   const [duration, setDuration] = useState(0);
   const [currentCaseDocId, setCurrentCaseDocId] = useState<string | null>(null);
-  const [caseStatus, setCaseStatus] = useState<'Recording' | 'Processing' | 'Draft' | 'Finalized'>('Draft');
+  const [caseStatus, setCaseStatus] = useState<'Recording' | 'Processing' | 'Draft' | 'Finalized' | 'Initial'>('Initial');
   
   const [caseInfo, setCaseInfo] = useState({
     caseId: generateCaseId(),
@@ -581,10 +589,42 @@ export default function App() {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
       setIsRecording(false);
+      setIsPaused(false);
       setStream(null);
       setCaseStatus('Processing');
       if (currentCaseDocId) {
         updateDoc(doc(db, 'cases', currentCaseDocId), { status: 'Processing' });
+      }
+    }
+  };
+
+  const pauseRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.pause();
+      setIsPaused(true);
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+  };
+
+  const resumeRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
+      mediaRecorderRef.current.resume();
+      setIsPaused(false);
+      timerRef.current = window.setInterval(() => {
+        setDuration(prev => prev + 1);
+      }, 1000);
+    }
+  };
+
+  const remoteStopCase = async (caseId: string) => {
+    if (window.confirm("Are you sure you want to forcibly stop this recording?")) {
+      try {
+        await updateDoc(doc(db, 'cases', caseId), {
+          status: 'Draft',
+          updatedAt: serverTimestamp()
+        });
+      } catch (err) {
+        console.error("Remote stop error:", err);
       }
     }
   };
@@ -1360,7 +1400,7 @@ export default function App() {
                 )}
                 <div className="p-6 bg-slate-900 text-white text-center">
                   <div className="text-4xl font-mono mb-6">{formatTime(duration)}</div>
-                  <div className="flex justify-center items-center gap-6">
+                  <div className="flex flex-col gap-4">
                     {!isRecording ? (
                       <button 
                         onClick={startRecording} 
@@ -1371,13 +1411,24 @@ export default function App() {
                         {t.startRecording}
                       </button>
                     ) : (
-                      <button 
-                        onClick={stopRecording} 
-                        className="btn-primary w-full py-4 text-lg bg-red-600 hover:bg-red-700 shadow-red-900/20"
-                      >
-                        <Square className="w-6 h-6" />
-                        {t.stopRecording}
-                      </button>
+                      <div className="flex flex-col gap-2 w-full">
+                        <div className="grid grid-cols-2 gap-2">
+                          <button 
+                            onClick={isPaused ? resumeRecording : pauseRecording} 
+                            className={`btn-primary py-4 text-lg ${isPaused ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-900/20' : 'bg-slate-700 hover:bg-slate-800 shadow-slate-900/20'}`}
+                          >
+                             {isPaused ? <Zap className="w-6 h-6" /> : <Pause className="w-6 h-6" />}
+                             {isPaused ? t.resumeRecording : t.pauseRecording}
+                          </button>
+                          <button 
+                            onClick={stopRecording} 
+                            className="btn-primary py-4 text-lg bg-red-600 hover:bg-red-700 shadow-red-900/20"
+                          >
+                            <Square className="w-6 h-6" />
+                            {t.stopRecording}
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
                   <p className="text-[10px] uppercase font-bold text-slate-500 mt-6 tracking-widest text-center">
@@ -1563,9 +1614,20 @@ export default function App() {
                           </div>
                         </td>
                         <td className="px-6 py-5 text-right">
-                           <button className="p-2 text-slate-300 hover:text-police-blue transition-colors">
-                             <Eye className="w-5 h-5" />
-                           </button>
+                           <div className="flex justify-end items-center gap-2">
+                             {c.status === 'Recording' && (
+                               <button 
+                                 onClick={(e) => { e.stopPropagation(); remoteStopCase(c.id); }}
+                                 className="p-2 text-red-400 hover:text-red-600 transition-colors"
+                                 title={t.remoteStop}
+                               >
+                                 <Square className="w-4 h-4" />
+                               </button>
+                             )}
+                             <button className="p-2 text-slate-300 hover:text-police-blue transition-colors">
+                               <Eye className="w-5 h-5" />
+                             </button>
+                           </div>
                         </td>
                       </tr>
                     ))}
@@ -1614,18 +1676,33 @@ export default function App() {
                       <div className="flex-1 p-6 md:p-10 bg-white overflow-y-auto">
                         <div className="max-w-3xl mx-auto border-l-4 border-police-blue/20 pl-4 md:pl-8">
                           {selectedCase.status === 'Recording' && (
-                            <div className="mb-8 p-6 bg-slate-900 rounded-3xl relative overflow-hidden group shadow-2xl">
-                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent z-10" />
-                              <div className="relative z-20 flex flex-col items-center justify-center py-10">
-                                <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center animate-pulse mb-4">
-                                  <Video className="w-8 h-8 text-red-500" />
+                            <div className="mb-6 flex flex-col gap-4">
+                              <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex justify-between items-center">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-2 h-2 rounded-full bg-red-600 animate-ping" />
+                                  <span className="text-xs font-black text-red-600 uppercase tracking-widest">Active Investigation Session</span>
                                 </div>
-                                <p className="text-white font-black uppercase tracking-[0.2em] text-xs">Live Feed Active</p>
-                                <p className="text-slate-400 text-[10px] mt-1 font-bold">MONITORING STATION BRAVO-9</p>
+                                <button 
+                                  onClick={() => remoteStopCase(selectedCase.id)}
+                                  className="px-4 py-2 bg-red-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-700 shadow-lg shadow-red-900/20"
+                                >
+                                  {t.remoteStop}
+                                </button>
                               </div>
-                              <div className="absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-1 bg-red-600 text-white rounded-full text-[9px] font-black uppercase tracking-widest animate-pulse">
-                                <div className="w-2 h-2 rounded-full bg-white" />
-                                Live Stream
+                              
+                              <div className="mb-8 p-6 bg-slate-900 rounded-3xl relative overflow-hidden group shadow-2xl">
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent z-10" />
+                                <div className="relative z-20 flex flex-col items-center justify-center py-10">
+                                  <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center animate-pulse mb-4">
+                                    <Video className="w-8 h-8 text-red-500" />
+                                  </div>
+                                  <p className="text-white font-black uppercase tracking-[0.2em] text-xs">Live Feed Active</p>
+                                  <p className="text-slate-400 text-[10px] mt-1 font-bold">MONITORING STATION BRAVO-9</p>
+                                </div>
+                                <div className="absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-1 bg-red-600 text-white rounded-full text-[9px] font-black uppercase tracking-widest animate-pulse">
+                                  <div className="w-2 h-2 rounded-full bg-white" />
+                                  Live Stream
+                                </div>
                               </div>
                             </div>
                           )}
