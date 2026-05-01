@@ -300,7 +300,7 @@ export default function App() {
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
 
-  const generateCaseId = () => `BGP-${new Date().getFullYear()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+  const generateCaseId = useCallback(() => `BGP-${new Date().getFullYear()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`, []);
 
   // App State
   const [uiLanguage, setUiLanguage] = useState<'EN' | 'AM'>('AM');
@@ -324,7 +324,7 @@ export default function App() {
   const [verificationError, setVerificationError] = useState<string | null>(null);
   
   const [caseInfo, setCaseInfo] = useState({
-    caseId: generateCaseId(),
+    caseId: '', // Start empty to avoid hydration mismatch
     detectiveName: '',
     intervieweeName: '',
     personType: 'Witness' as const,
@@ -359,6 +359,11 @@ export default function App() {
   // Auth Listener
   useEffect(() => {
     setIsMounted(true);
+    // Initialize case ID if empty
+    setCaseInfo(prev => ({
+      ...prev,
+      caseId: prev.caseId || generateCaseId()
+    }));
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       if (u) {
         setUser({ uid: u.uid, email: u.email || '', displayName: u.displayName || '' });
@@ -2069,7 +2074,7 @@ export default function App() {
              </div>
              
              <div className="mt-2 text-xs font-bold bg-slate-100 py-1 inline-block px-6 rounded-full border border-slate-200">
-                DATE: {new Date().toLocaleDateString('en-GB')} • {new Date().toLocaleDateString('am-ET')}
+                DATE: {isMounted ? `${new Date().toLocaleDateString('en-GB')} • ${new Date().toLocaleDateString('am-ET')}` : '...'}
              </div>
           </div>
 
@@ -2133,7 +2138,7 @@ export default function App() {
               </div>
               <div className="text-[8px] font-mono text-slate-400 uppercase flex flex-col text-right">
                  <span>ID: {currentCaseDocId?.toUpperCase() || 'UNSYNCED'}</span>
-                 <span>TIMESTAMP: {new Date().toISOString()}</span>
+                 <span>TIMESTAMP: {isMounted ? new Date().toISOString() : '...'}</span>
               </div>
           </div>
         </div>
@@ -2144,7 +2149,7 @@ export default function App() {
         <div className="text-center mb-10 border-b-2 border-black pb-8">
            <h1 className="text-3xl font-black">{t.title}</h1>
            <h2 className="text-xl font-bold mt-2 uppercase">{t.reports}</h2>
-           <p className="text-xs mt-4">Generated on: {new Date().toLocaleString()}</p>
+           <p className="text-xs mt-4">Generated on: {isMounted ? new Date().toLocaleString() : '...'}</p>
         </div>
         
         <div className="grid grid-cols-2 gap-8 mb-10">
