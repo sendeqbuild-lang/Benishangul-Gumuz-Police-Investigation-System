@@ -724,17 +724,31 @@ export default function App() {
 
   useEffect(() => {
     let scanner: Html5QrcodeScanner | null = null;
-    if (showScanner) {
-      const config = { fps: 10, qrbox: { width: 250, height: 250 } };
-      scanner = new Html5QrcodeScanner("qr-reader", config, false);
-      scanner.render(handleScanSuccess, (error) => {});
-    }
+    let isSubscribed = true;
 
-    return () => {
-      if (scanner) {
-        scanner.clear().catch(error => console.error("Scanner clear error", error));
-      }
-    };
+    if (showScanner) {
+      // Small timeout to ensure the DOM element #qr-reader is present after modal animation starts
+      const timeoutId = setTimeout(() => {
+        if (!isSubscribed) return;
+        
+        const element = document.getElementById("qr-reader");
+        if (element) {
+          const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+          scanner = new Html5QrcodeScanner("qr-reader", config, false);
+          scanner.render(handleScanSuccess, (error) => {});
+        } else {
+          console.error("QR reader element not found");
+        }
+      }, 500);
+
+      return () => {
+        isSubscribed = false;
+        clearTimeout(timeoutId);
+        if (scanner) {
+          scanner.clear().catch(error => console.error("Scanner clear error", error));
+        }
+      };
+    }
   }, [showScanner]);
 
   const processAudio = async (blob: Blob, docId: string) => {
