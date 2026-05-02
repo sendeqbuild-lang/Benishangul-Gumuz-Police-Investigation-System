@@ -1474,8 +1474,6 @@ export default function App() {
 
   const verifyUrl = isMounted ? `${window.location.origin}${window.location.pathname}?verify=${caseInfo.caseId || 'UNK'}` : '';
 
-  if (!isMounted) return null;
-
   if (loadingApp) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -1783,7 +1781,7 @@ export default function App() {
                   </div>
                   <div>
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{card.label}</p>
-                    <p className="text-3xl font-black text-slate-800 leading-none mt-1">{isMounted ? card.val : '...'}</p>
+                    <p className="text-3xl font-black text-slate-800 leading-none mt-1">{card.val}</p>
                     <p className="text-[10px] text-police-blue font-bold mt-2 opacity-0 group-hover:opacity-100 transition-opacity">{t.viewDetails} →</p>
                   </div>
                 </div>
@@ -3201,7 +3199,7 @@ export default function App() {
         <div className="text-center mb-10 border-b-2 border-black pb-8 relative z-10">
            <h1 className="text-3xl font-black">{t.title}</h1>
            <h2 className="text-xl font-bold mt-2 uppercase">{t.reports}</h2>
-           <p className="text-xs mt-4">Generated on: {clientDate || '...'}</p>
+           <p className="text-xs mt-4">Generated on: {clientDate}</p>
         </div>
         
         <div className="grid grid-cols-2 gap-8 mb-10">
