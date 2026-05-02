@@ -351,7 +351,7 @@ const translations: Record<'EN' | 'AM', Translation> = {
     noHistory: "ምንም ንቁ ምርመራ የለም።",
     finalize: "አረጋግጥና አትም",
     back: "ተመለስ",
-    processing: "በአርቴፊሻል ኢንለጀንስ ትርጉም እየተሰራ ነው...",
+    processing: "በአርቴፊሻል ኢንተለጀንስ ትርጉም እየተሰራ ነው...",
     processingSub: "ወደ አማርኛ እየተተረጎመ ነው...",
     placeholder: "አውቶማቲክ ትርጉሙ እዚህ ይታያል...",
     locked: "ተቆልፏል - ተጠናቋል",
@@ -442,6 +442,8 @@ export default function App() {
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
 
+  const [clientDate, setClientDate] = useState<string | null>(null);
+
   const generateCaseId = useCallback(() => `BGP-${new Date().getFullYear()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`, []);
 
   // App State
@@ -466,12 +468,12 @@ export default function App() {
   const [verificationError, setVerificationError] = useState<string | null>(null);
   
   const [caseInfo, setCaseInfo] = useState({
-    caseId: '', // Start empty to avoid hydration mismatch
+    caseId: '',
     detectiveName: '',
     intervieweeName: '',
     personType: 'Witness' as const,
     language: 'Amharic',
-    recordingMode: 'Video' as 'Audio' | 'Video'
+    recordingMode: 'Audio' as 'Audio' | 'Video'
   });
   
   const [allCases, setAllCases] = useState<CaseRecord[]>([]);
@@ -505,7 +507,7 @@ export default function App() {
   // Auth Listener
   useEffect(() => {
     setIsMounted(true);
-    // Initialize case ID if empty
+    setClientDate(new Date().toLocaleDateString('en-GB'));
     setCaseInfo(prev => ({
       ...prev,
       caseId: prev.caseId || generateCaseId()
@@ -533,8 +535,7 @@ export default function App() {
       q = query(collection(db, 'cases'), orderBy('updatedAt', 'desc'));
     } else {
       q = query(collection(db, 'cases'), 
-        where('investigatorEmail', '==', user.email),
-        orderBy('updatedAt', 'desc')
+        where('investigatorEmail', '==', user.email)
       );
     }
 
@@ -822,6 +823,11 @@ export default function App() {
         const blob = new Blob(audioChunksRef.current, { type: recordedMimeType });
         setRecordedBlob({ blob, mimeType: recordedMimeType });
         setCaseStatus('Draft');
+        
+        // Automatically start processing
+        if (docId) {
+          await processAudio(blob, docId, recordedMimeType);
+        }
       };
 
       recorder.start();
@@ -944,24 +950,28 @@ export default function App() {
     setIsProcessing(true);
     setError(null);
     try {
-      const reader = new FileReader();
-      reader.readAsDataURL(blob);
-      reader.onloadend = async () => {
-        const base64data = reader.result?.toString().split(',')[1];
-        if (base64data) {
-          const result = await transcribeAndTranslateAudio(base64data, mimeType, caseInfo.language);
-          const newTranscription = transcription ? transcription + "\n\n" + result : result;
-          setTranscription(newTranscription);
-          setCaseStatus('Draft');
-          await updateDoc(doc(db, 'cases', docId), {
-            transcription: newTranscription,
-            status: 'Draft',
-            updatedAt: serverTimestamp()
-          });
-          setShowSuccessToast(true);
-          setTimeout(() => setShowSuccessToast(false), 5000);
-        }
-      };
+      const base64data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(blob);
+        reader.onloadend = () => {
+          const base64 = reader.result?.toString().split(',')[1];
+          if (base64) resolve(base64);
+          else reject(new Error("Failed to convert audio to base64"));
+        };
+        reader.onerror = () => reject(reader.error);
+      });
+
+      const result = await transcribeAndTranslateAudio(base64data, mimeType, caseInfo.language);
+      const newTranscription = transcription ? transcription + "\n\n" + result : result;
+      setTranscription(newTranscription);
+      setCaseStatus('Draft');
+      await updateDoc(doc(db, 'cases', docId), {
+        transcription: newTranscription,
+        status: 'Draft',
+        updatedAt: serverTimestamp()
+      });
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 5000);
     } catch (err: any) {
       console.error('Processing error:', err);
       setError('ድምፁን ወደ ፅሁፍ መቀየር አልተቻለም።');
@@ -2420,7 +2430,7 @@ export default function App() {
              </div>
              
              <div className="mt-2 text-xs font-bold bg-slate-100 py-1 inline-block px-6 rounded-full border border-slate-200">
-                DATE: {isMounted ? `${new Date().toLocaleDateString('en-GB')} • ${new Date().toLocaleDateString('am-ET')}` : '...'}
+                DATE: {clientDate || '...'}
              </div>
           </div>
 
@@ -2484,7 +2494,7 @@ export default function App() {
               </div>
               <div className="text-[8px] font-mono text-slate-400 uppercase flex flex-col text-right">
                  <span>ID: {currentCaseDocId?.toUpperCase() || 'UNSYNCED'}</span>
-                 <span>TIMESTAMP: {isMounted ? new Date().toISOString() : '...'}</span>
+                 <span>TIMESTAMP: {isMounted ? clientDate || '...' : '...'}</span>
               </div>
           </div>
         </div>
@@ -2495,7 +2505,7 @@ export default function App() {
         <div className="text-center mb-10 border-b-2 border-black pb-8">
            <h1 className="text-3xl font-black">{t.title}</h1>
            <h2 className="text-xl font-bold mt-2 uppercase">{t.reports}</h2>
-           <p className="text-xs mt-4">Generated on: {isMounted ? new Date().toLocaleString() : '...'}</p>
+           <p className="text-xs mt-4">Generated on: {clientDate || '...'}</p>
         </div>
         
         <div className="grid grid-cols-2 gap-8 mb-10">
