@@ -75,7 +75,9 @@ import {
   addDoc,
   where,
   deleteDoc,
-  getDocs
+  getDocs,
+  arrayUnion,
+  getDoc
 } from 'firebase/firestore';
 
 // Types
@@ -87,6 +89,16 @@ interface StaffProfile {
   role: string;
   password?: string;
   userType: 'Investigator' | 'Admin';
+}
+
+interface RecordingFile {
+  id: string;
+  name: string;
+  data: string; // base64
+  mimeType: string;
+  duration: number;
+  createdAt: any;
+  transcription?: string;
 }
 
 interface CaseRecord {
@@ -102,6 +114,7 @@ interface CaseRecord {
   investigatorEmail: string;
   updatedAt: any;
   hasVideo?: boolean;
+  recordings?: RecordingFile[];
 }
 
 interface Translation {
@@ -212,6 +225,10 @@ interface Translation {
   confirmVerification: string;
   dataMatches: string;
   dataMismatch: string;
+  savedRecordings: string;
+  convertToText: string;
+  noRecordings: string;
+  recordingSaved: string;
 }
 
 const translations: Record<'EN' | 'AM', Translation> = {
@@ -322,7 +339,11 @@ const translations: Record<'EN' | 'AM', Translation> = {
     verifyScannedRecord: "Verify Scanned Record",
     confirmVerification: "Confirm Authenticity",
     dataMatches: "System data matches record",
-    dataMismatch: "System data mismatch"
+    dataMismatch: "System data mismatch",
+    savedRecordings: "Case Files & Recordings",
+    convertToText: "Convert to Text (Amharic)",
+    noRecordings: "No files saved for this case yet.",
+    recordingSaved: "Recording saved to case file."
   },
   AM: {
     title: "የቤንሻንጉል ጉሙዝ ፖሊስ ኮሚሽን",
@@ -432,8 +453,20 @@ const translations: Record<'EN' | 'AM', Translation> = {
     confirmVerification: "ትክክለኛነቱን አረጋግጥ",
     dataMatches: "መረጃው በትክክል ይገጥማል",
     dataMismatch: "መረጃው አይገጥምም",
+    savedRecordings: "የተቀመጡ የድምፅና ቪዲዮ ፋይሎች",
+    convertToText: "ወደ ጽሁፍ ቀይር (Amharic)",
+    noRecordings: "ለዚህ መዝገብ እስካሁን የተቀመጠ ፋይል የለም።",
+    recordingSaved: "ቀረጻው በመዝገቡ ውስጥ በትክክል ተቀምጧል።"
   }
 };
+
+// Global types for Speech Recognition
+declare global {
+  interface Window {
+    webkitSpeechRecognition: any;
+    SpeechRecognition: any;
+  }
+}
 
 export default function App() {
   // Auth State
@@ -502,6 +535,7 @@ export default function App() {
   // Refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const recognitionRef = useRef<any>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
 
@@ -753,7 +787,11 @@ export default function App() {
 
     try {
       const constraints = { 
-        audio: true, 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        }, 
         video: caseInfo.recordingMode === 'Video' ? { 
           width: { ideal: 1280 },
           height: { ideal: 720 },
@@ -805,6 +843,33 @@ export default function App() {
       
       setCaseStatus('Recording');
 
+      // Initialize Speech Recognition (Keyless)
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.lang = caseInfo.language === 'Amharic' ? 'am-ET' : 'en-US';
+        recognition.continuous = true;
+        recognition.interimResults = true;
+
+        recognition.onresult = (event: any) => {
+          let interimText = '';
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              setTranscription(prev => (prev ? prev + ' ' : '') + event.results[i][0].transcript);
+            } else {
+              interimText += event.results[i][0].transcript;
+            }
+          }
+        };
+
+        recognition.onerror = (err: any) => {
+          console.error("Speech Recognition Error:", err);
+        };
+
+        recognition.start();
+        recognitionRef.current = recognition;
+      }
+
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
@@ -813,11 +878,12 @@ export default function App() {
         const recordedMimeType = recorder.mimeType || (caseInfo.recordingMode === 'Video' ? 'video/webm' : 'audio/webm');
         const blob = new Blob(audioChunksRef.current, { type: recordedMimeType });
         setRecordedBlob({ blob, mimeType: recordedMimeType });
+        const finalDuration = duration;
         setCaseStatus('Draft');
         
-        // Automatically start processing
+        // Save the recording to the case file
         if (docId) {
-          await processAudio(blob, docId, recordedMimeType);
+          await saveRecording(blob, docId, recordedMimeType, finalDuration);
         }
       };
 
@@ -835,6 +901,12 @@ export default function App() {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+
       setIsRecording(false);
       setIsPaused(false);
       setStream(null);
@@ -843,6 +915,21 @@ export default function App() {
         updateDoc(doc(db, 'cases', currentCaseDocId), { status: 'Processing' });
       }
     }
+  };
+
+  const base64ToBlob = (base64: string, mimeType: string) => {
+    const byteCharacters = atob(base64);
+    const byteArrays = [];
+    for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+      const slice = byteCharacters.slice(offset, offset + 512);
+      const byteNumbers = new Array(slice.length);
+      for (let i = 0; i < slice.length; i++) {
+        byteNumbers[i] = slice.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      byteArrays.push(byteArray);
+    }
+    return new Blob(byteArrays, { type: mimeType });
   };
 
   const pauseRecording = () => {
@@ -977,9 +1064,8 @@ export default function App() {
     }
   }, [showScanner, cameraFacingMode, handleScanSuccess]);
 
-  const processAudio = async (blob: Blob, docId: string, mimeType: string) => {
+  const saveRecording = async (blob: Blob, docId: string, mimeType: string, dur: number) => {
     setIsProcessing(true);
-    setError(null);
     try {
       const base64data = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -992,6 +1078,38 @@ export default function App() {
         reader.onerror = () => reject(reader.error);
       });
 
+      const recId = `REC-${Date.now()}`;
+      const recFile: RecordingFile = {
+        id: recId,
+        name: `${caseInfo.recordingMode} - ${new Date().toLocaleTimeString()}`,
+        data: base64data,
+        mimeType: mimeType,
+        duration: dur,
+        createdAt: new Date().toISOString()
+      };
+
+      await updateDoc(doc(db, 'cases', docId), {
+        recordings: arrayUnion(recFile),
+        updatedAt: serverTimestamp()
+      });
+
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 3000);
+      
+      // Also trigger initial transcription automatically for the new recording
+      await transcribeRecording(base64data, docId, mimeType);
+    } catch (err) {
+      console.error("Save recording error:", err);
+      setError("ፋይሉን ማስቀመጥ አልተቻለም። (Failed to save recording)");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const transcribeRecording = async (base64data: string, docId: string, mimeType: string) => {
+    setIsProcessing(true);
+    setError(null);
+    try {
       const result = await transcribeAndTranslateAudio(base64data, mimeType, caseInfo.language);
       const newTranscription = transcription ? transcription + "\n\n" + result : result;
       setTranscription(newTranscription);
@@ -1004,7 +1122,7 @@ export default function App() {
       setShowSuccessToast(true);
       setTimeout(() => setShowSuccessToast(false), 5000);
     } catch (err: any) {
-      console.error('Processing error:', err);
+      console.error('Transcription error:', err);
       setError('ድምፁን ወደ ፅሁፍ መቀየር አልተቻለም።');
     } finally {
       setIsProcessing(false);
@@ -1930,7 +2048,13 @@ export default function App() {
                       <button 
                         onClick={async () => {
                           if (!currentCaseDocId) return;
-                          await processAudio(recordedBlob.blob, currentCaseDocId, recordedBlob.mimeType);
+                          // For now using the existing transcribeRecording
+                          const reader = new FileReader();
+                          reader.readAsDataURL(recordedBlob.blob);
+                          reader.onloadend = async () => {
+                            const base64 = reader.result?.toString().split(',')[1];
+                            if (base64) await transcribeRecording(base64, currentCaseDocId, recordedBlob.mimeType);
+                          };
                           setRecordedBlob(null);
                         }}
                         disabled={isProcessing || isRecording}
@@ -2020,6 +2144,63 @@ export default function App() {
                     </div>
                   )}
                 </div>
+                
+                {/* Saved Recordings List */}
+                {(() => {
+                  const currentCase = allCases.find(c => c.id === currentCaseDocId);
+                  if (currentCase?.recordings && currentCase.recordings.length > 0) {
+                    return (
+                      <div className="px-8 py-6 border-t border-slate-100 bg-slate-50/50">
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                           <Archive className="w-4 h-4" />
+                           {t.savedRecordings}
+                        </h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {currentCase.recordings.map((rec) => (
+                            <div key={rec.id} className="p-4 bg-white rounded-2xl border-2 border-slate-100/80 shadow-sm flex flex-col gap-3 group transition-all hover:border-police-blue">
+                              <div className="flex justify-between items-start">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                                    {rec.mimeType.includes('video') ? <Video className="w-4 h-4 text-blue-600" /> : <Mic className="w-4 h-4 text-blue-600" />}
+                                  </div>
+                                  <div>
+                                    <p className="text-[10px] font-bold text-slate-800 truncate max-w-[120px] leading-tight">{rec.name}</p>
+                                    <p className="text-[9px] text-slate-400 font-mono tracking-tight">{formatTime(rec.duration)}</p>
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    const blob = base64ToBlob(rec.data, rec.mimeType);
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = `${rec.name}.${rec.mimeType.includes('video') ? 'webm' : 'webm'}`;
+                                    a.click();
+                                    setTimeout(() => URL.revokeObjectURL(url), 100);
+                                  }}
+                                  className="p-1.5 hover:bg-police-blue hover:text-white text-slate-300 rounded-md transition-all"
+                                  title="Download File"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                              <div className="h-px bg-slate-50 w-full" />
+                              <button 
+                                onClick={() => transcribeRecording(rec.data, currentCase.id, rec.mimeType)}
+                                disabled={isProcessing}
+                                className="w-full flex items-center justify-center gap-2 py-2 bg-slate-50 hover:bg-police-blue hover:text-white text-police-blue rounded-xl text-[9px] font-black uppercase tracking-wider transition-all disabled:opacity-50"
+                              >
+                                {isProcessing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                                {t.convertToText}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             </div>
           </div>
