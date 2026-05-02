@@ -913,26 +913,53 @@ export default function App() {
 
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
-  const qrScannerCallback = useCallback((element: HTMLDivElement | null) => {
-    if (element && showScanner) {
-      if (!scannerRef.current) {
-        const config = { 
-          fps: 10, 
-          qrbox: { width: 250, height: 250 },
-          videoConstraints: {
-            facingMode: cameraFacingMode
+  useEffect(() => {
+    if (showScanner) {
+      const timer = setTimeout(() => {
+        const element = document.getElementById("qr-reader");
+        if (element && !scannerRef.current) {
+          try {
+            const config = { 
+              fps: 15, 
+              qrbox: (viewWidth: number, viewHeight: number) => {
+                const minDimension = Math.min(viewWidth, viewHeight);
+                return { width: minDimension * 0.7, height: minDimension * 0.7 };
+              },
+              videoConstraints: {
+                facingMode: cameraFacingMode
+              },
+              aspectRatio: 1.0
+            };
+            scannerRef.current = new Html5QrcodeScanner("qr-reader", config, false);
+            scannerRef.current.render(
+              (decodedText) => {
+                handleScanSuccess(decodedText);
+              }, 
+              (error) => {
+                // Ignore noise
+                if (typeof error === 'string' && error.includes('NotFound')) return;
+              }
+            );
+          } catch (err) {
+            console.error("Scanner setup failed:", err);
+            setError("የካሜራ ስካነሩን ማስጀመር አልተቻለም። እባክዎ ካሜራውን መጠቀም እንደሚቻል ያረጋግጡ። (Scanner failed to start. Check camera permissions.)");
           }
-        };
-        scannerRef.current = new Html5QrcodeScanner("qr-reader", config, false);
-        scannerRef.current.render(handleScanSuccess, () => {});
-      }
-    } else {
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(error => console.error("Scanner clear error", error));
-        scannerRef.current = null;
-      }
+        }
+      }, 500);
+      return () => {
+        clearTimeout(timer);
+        if (scannerRef.current) {
+          scannerRef.current.clear().catch(error => {
+            // Ignore error if it's already cleared or element removed
+            if (!(error as string)?.includes('DOM')) {
+              console.error("Scanner clear error", error);
+            }
+          });
+          scannerRef.current = null;
+        }
+      };
     }
-  }, [showScanner, cameraFacingMode]);
+  }, [showScanner, cameraFacingMode, handleScanSuccess]);
 
   const processAudio = async (blob: Blob, docId: string, mimeType: string) => {
     setIsProcessing(true);
@@ -2256,7 +2283,6 @@ export default function App() {
                   </button>
                </div>
                <div 
-                 ref={qrScannerCallback}
                  id="qr-reader" 
                  className="rounded-2xl overflow-hidden border-4 border-slate-100 shadow-inner bg-slate-50"
                ></div>
