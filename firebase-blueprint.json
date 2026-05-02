@@ -32,9 +32,24 @@
         "investigatorEmail": { "type": "string" }
       },
       "required": ["caseId", "detectiveName", "intervieweeName", "status"]
+    },
+    "Setting": {
+      "title": "Global System Settings",
+      "description": "Store system-wide configurations like logos.",
+      "type": "object",
+      "properties": {
+        "policeLogo": { "type": "string", "description": "Base64 encoded logo image." },
+        "stationName": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
     }
   },
   "firestore": {
+    "/settings/{id}": {
+      "schema": "Setting",
+      "description": "Store global branding and settings."
+    },
     "/users/{uid}": {
       "schema": "User",
       "description": "Store officer profiles."
