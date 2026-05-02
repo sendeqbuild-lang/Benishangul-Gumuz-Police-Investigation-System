@@ -98,7 +98,6 @@ interface CaseRecord {
   investigatorUid: string;
   investigatorEmail: string;
   updatedAt: any;
-  recordCount?: number;
   hasVideo?: boolean;
 }
 
@@ -454,7 +453,6 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
-  const [recordCount, setRecordCount] = useState(0); 
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [transcription, setTranscription] = useState('');
@@ -672,7 +670,6 @@ export default function App() {
     setCurrentCaseDocId(null);
     setTranscription('');
     setCaseStatus('Initial');
-    setRecordCount(0);
     setSearchTerm('');
     setMode('Investigator');
     setSelectedCase(null);
@@ -691,7 +688,6 @@ export default function App() {
       });
       setTranscription('');
       setCaseStatus('Initial');
-      setRecordCount(0);
       setIsRecording(false);
       setIsProcessing(false);
       setDuration(0);
@@ -752,11 +748,6 @@ export default function App() {
       return;
     }
 
-    if (recordCount >= 2) {
-      setError("መቅዳት የሚቻለው ቢበዛ ሁለት ጊዜ ብቻ ነው። (Max 2 recordings allowed)");
-      return;
-    }
-
     try {
       const constraints = { 
         audio: true, 
@@ -797,7 +788,6 @@ export default function App() {
           investigatorEmail: user?.email,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-          recordCount: 1,
           hasVideo: caseInfo.recordingMode === 'Video'
         });
         docId = docRef.id;
@@ -805,13 +795,11 @@ export default function App() {
       } else {
         await updateDoc(doc(db, 'cases', docId), {
           status: 'Recording',
-          recordCount: recordCount + 1,
           updatedAt: serverTimestamp(),
           hasVideo: caseInfo.recordingMode === 'Video'
         });
       }
       
-      setRecordCount(prev => prev + 1);
       setCaseStatus('Recording');
 
       recorder.ondataavailable = (e) => {
@@ -1021,7 +1009,6 @@ export default function App() {
     setTranscription(c.transcription);
     setCaseStatus(c.status);
     setCurrentCaseDocId(c.id);
-    setRecordCount((c as any).recordCount || 0);
     setMode('Investigator');
   };
 
