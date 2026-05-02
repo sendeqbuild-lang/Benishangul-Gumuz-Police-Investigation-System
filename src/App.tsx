@@ -3012,16 +3012,16 @@ export default function App() {
 
       {/* Hidden Printable Official Document (Case) */}
       <div id="printable-report" className={`${activePrintId === 'case' ? 'print:block' : 'print:hidden'} hidden font-serif text-black p-0 leading-relaxed overflow-visible`}>
-        <div className="w-[190mm] mx-auto min-h-screen relative p-[15mm]">
+        <div className="w-[190mm] mx-auto min-h-screen relative p-[15mm] overflow-hidden">
+          {/* Watermark Logo (Centered Globally on Page) */}
+          {systemSettings?.policeLogo && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.06] z-0 h-full w-full">
+               <img src={systemSettings.policeLogo} alt="Watermark" className="w-[150mm] h-auto object-contain transform -rotate-12" />
+            </div>
+          )}
+          
           {/* Header */}
           <div className="text-center mb-10 border-b-2 border-black pb-8 relative">
-             {/* Watermark Logo */}
-             {systemSettings?.policeLogo && (
-               <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.07] overflow-hidden z-0">
-                  <img src={systemSettings.policeLogo} alt="Watermark" className="w-[120mm]" />
-               </div>
-             )}
-             
              <div className="absolute top-0 right-0 z-10">
                 <QRCodeCanvas 
                   value={verifyUrl} 
@@ -3120,8 +3120,15 @@ export default function App() {
       </div>
 
       {/* Hidden Printable Official Document (Statistics) */}
-      <div id="printable-stats" className={`${activePrintId === 'stats' ? 'print:block' : 'print:hidden'} hidden font-serif text-black p-10 leading-relaxed overflow-visible`}>
-        <div className="text-center mb-10 border-b-2 border-black pb-8">
+      <div id="printable-stats" className={`${activePrintId === 'stats' ? 'print:block' : 'print:hidden'} hidden font-serif text-black p-10 leading-relaxed overflow-hidden relative min-h-screen`}>
+        {/* Watermark Logo (Centered Globally on Page) */}
+        {systemSettings?.policeLogo && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.06] z-0 h-full w-full">
+             <img src={systemSettings.policeLogo} alt="Watermark" className="w-[150mm] h-auto object-contain transform -rotate-12" />
+          </div>
+        )}
+
+        <div className="text-center mb-10 border-b-2 border-black pb-8 relative z-10">
            <h1 className="text-3xl font-black">{t.title}</h1>
            <h2 className="text-xl font-bold mt-2 uppercase">{t.reports}</h2>
            <p className="text-xs mt-4">Generated on: {clientDate || '...'}</p>
