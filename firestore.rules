@@ -44,5 +44,10 @@ service cloud.firestore {
       );
       allow delete: if isAdmin();
     }
+
+    match /settings/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
   }
 }
