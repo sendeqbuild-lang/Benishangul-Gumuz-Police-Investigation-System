@@ -60,12 +60,13 @@ export async function processImageToText(imageBase64: string, mimeType: string) 
     }
 
     return text.trim();
-  } catch (error) {
+  } catch (error: any) {
     console.error("Gemini OCR Processing Error:", error);
-    if (error instanceof Error) {
-      return `Error: ${error.message}`;
+    let msg = error?.message || "Unknown error";
+    if (msg.includes("API key not valid")) {
+      throw new Error("INVALID_API_KEY");
     }
-    return "OCR failed due to an unknown error.";
+    throw error;
   }
 }
 
@@ -113,11 +114,12 @@ export async function transcribeAndTranslateAudio(audioBase64: string, mimeType:
     }
 
     return text.trim();
-  } catch (error) {
+  } catch (error: any) {
     console.error("Gemini AI Processing Error:", error);
-    if (error instanceof Error) {
-      return `Error: ${error.message}`;
+    const errorString = error?.message || String(error);
+    if (errorString.includes("API key not valid") || errorString.includes("API_KEY_INVALID")) {
+      throw new Error("INVALID_API_KEY");
     }
-    return "Transcription failed due to an unknown error.";
+    throw error;
   }
 }
