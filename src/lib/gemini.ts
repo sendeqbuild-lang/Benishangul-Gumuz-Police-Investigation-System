@@ -4,13 +4,18 @@ let aiInstance: GoogleGenAI | null = null;
 
 function getAI() {
   if (!aiInstance) {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+    // These will be replaced by Vite define during build. 
+    // We prioritize VITE_ prefixed keys as they are the standard for client-side Vite.
+    const apiKey = 
+      (process.env as any).VITE_GEMINI_API_KEY || 
+      (process.env as any).GEMINI_API_KEY || 
+      (import.meta as any).env?.VITE_GEMINI_API_KEY || 
+      (window as any).VITE_GEMINI_API_KEY;
+    
     if (!apiKey) {
-      console.warn("GEMINI_API_KEY is not set. Gemini features will not work. Accessing via import.meta.env as fallback.");
+      console.warn("GEMINI_API_KEY is not set. Gemini features will not work.");
     }
-    // Final fallback attempt for various environments
-    const finalKey = apiKey || (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
-    aiInstance = new GoogleGenAI({ apiKey: finalKey });
+    aiInstance = new GoogleGenAI({ apiKey: apiKey || "" });
   }
   return aiInstance;
 }
