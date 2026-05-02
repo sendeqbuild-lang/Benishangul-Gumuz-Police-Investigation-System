@@ -38,7 +38,8 @@ import {
   Pause,
   Scan,
   Archive,
-  FileX
+  FileX,
+  RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { transcribeAndTranslateAudio } from './lib/gemini';
@@ -296,6 +297,12 @@ const translations = {
     viewDetails: "ዝርዝር መረጃ ተመልከት",
     totalStaff: "ጠቅላላ ሰራተኞች",
     activeNow: "አሁን ስራ ላይ ያሉ",
+    transcribe: "ድምፁን ወደ ጽሁፍ ቀይር",
+    switchCamera: "ካሜራ ቀይር",
+    verifyScannedRecord: "የተቃኘ መዝገብ አረጋግጥ",
+    confirmVerification: "ትክክለኛነቱን አረጋግጥ",
+    dataMatches: "መረጃው በትክክል ይገጥማል",
+    dataMismatch: "መረጃው አይገጥምም",
   }
 };
 
@@ -349,6 +356,8 @@ export default function App() {
   const [activePrintId, setActivePrintId] = useState<'case' | 'stats'>('case');
   const [supervisorGroupByDetective, setSupervisorGroupByDetective] = useState(false);
   const [activeReportFilter, setActiveReportFilter] = useState<{type: string, value: string} | null>(null);
+  const [cameraFacingMode, setCameraFacingMode] = useState<'user' | 'environment'>('environment');
+  const [recordedBlob, setRecordedBlob] = useState<{blob: Blob, mimeType: string} | null>(null);
 
   // Admin Form State
   const [newStaff, setNewStaff] = useState({
@@ -684,7 +693,8 @@ export default function App() {
       recorder.onstop = async () => {
         const recordedMimeType = recorder.mimeType || (caseInfo.recordingMode === 'Video' ? 'video/webm' : 'audio/webm');
         const blob = new Blob(audioChunksRef.current, { type: recordedMimeType });
-        await processAudio(blob, docId!, recordedMimeType);
+        setRecordedBlob({ blob, mimeType: recordedMimeType });
+        setCaseStatus('Draft');
       };
 
       recorder.start();
@@ -785,7 +795,13 @@ export default function App() {
   const qrScannerCallback = useCallback((element: HTMLDivElement | null) => {
     if (element && showScanner) {
       if (!scannerRef.current) {
-        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+        const config = { 
+          fps: 10, 
+          qrbox: { width: 250, height: 250 },
+          videoConstraints: {
+            facingMode: cameraFacingMode
+          }
+        };
         scannerRef.current = new Html5QrcodeScanner("qr-reader", config, false);
         scannerRef.current.render(handleScanSuccess, () => {});
       }
@@ -795,7 +811,7 @@ export default function App() {
         scannerRef.current = null;
       }
     }
-  }, [showScanner]);
+  }, [showScanner, cameraFacingMode]);
 
   const processAudio = async (blob: Blob, docId: string, mimeType: string) => {
     setIsProcessing(true);
@@ -893,9 +909,12 @@ export default function App() {
         const { secondaryAuth } = await import('./lib/firebase');
         const userCredential = await createUserWithEmailAndPassword(secondaryAuth, newStaff.email, newStaff.password);
         
+        await updateProfile(userCredential.user, { displayName: newStaff.fullName });
+        
         const { password, ...staffData } = newStaff;
         await setDoc(doc(db, 'users', userCredential.user.uid), {
           ...staffData,
+          displayName: newStaff.fullName,
           createdAt: serverTimestamp()
         });
         alert("መርማሪው በትክክል ተመዝግቧል! (Officer registered successfully)");
@@ -1585,8 +1604,8 @@ export default function App() {
                   </div>
                 </div>
                 
-                <div className="p-4 space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar">
-                  {filteredCases.filter(c => c.detectiveName === (user?.displayName || user?.email)).map(c => (
+                <div className="p-4 space-y-3 max-h-[500px] overflow-y-auto custom-scrollbar bg-white/50">
+                  {filteredCases.filter(c => c.investigatorEmail === user?.email).map(c => (
                     <div 
                       key={c.id}
                       onClick={() => selectCaseForEditing(c)}
@@ -1594,25 +1613,32 @@ export default function App() {
                         currentCaseDocId === c.id ? 'border-police-blue bg-blue-50/50 shadow-md translate-x-1' : 'border-slate-50 hover:border-slate-200 hover:bg-slate-50'
                       }`}
                     >
-                      <div className={`p-3 rounded-xl ${c.status === 'Finalized' ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'}`}>
-                        <FileText className="w-5 h-5" />
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${c.status === 'Finalized' ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600 shadow-sm'}`}>
+                        <Archive className="w-6 h-6" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-start mb-0.5">
-                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">{c.caseId}</span>
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{c.caseId}</span>
+                          <span className="text-[8px] text-slate-400">{c.updatedAt?.toDate?.()?.toLocaleDateString()}</span>
                         </div>
-                        <p className="text-xs font-bold text-slate-800 truncate">{c.intervieweeName || "Unnamed Subject"}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-widest ${
-                            c.status === 'Finalized' ? 'bg-green-200 text-green-800' : 'bg-amber-200 text-amber-800'
+                        <p className="text-xs font-black text-slate-800 truncate leading-none mb-1">{c.intervieweeName || "Pending Subject"}</p>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[8px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${
+                            c.status === 'Finalized' ? 'bg-green-200 text-green-800 border border-green-300' : 
+                            c.status === 'Recording' ? 'bg-red-100 text-red-600 border border-red-200 animate-pulse' :
+                            'bg-amber-100 text-amber-800 border border-amber-200'
                           }`}>
                             {c.status}
                           </span>
+                          <span className="text-[8px] font-bold text-slate-400 uppercase">{c.language}</span>
                         </div>
+                      </div>
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                         <ChevronRight className="w-4 h-4 text-police-blue" />
                       </div>
                     </div>
                   ))}
-                  {filteredCases.filter(c => c.detectiveName === (user?.displayName || user?.email)).length === 0 && (
+                  {filteredCases.filter(c => c.investigatorEmail === user?.email).length === 0 && (
                     <div className="text-center py-10 opacity-40">
                       <FileX className="w-10 h-10 mx-auto mb-2" />
                       <p className="text-xs font-bold uppercase tracking-widest">No local files found</p>
@@ -1673,34 +1699,18 @@ export default function App() {
                       <PlusCircle className="w-4 h-4" />
                       {t.newInvestigation}
                     </button>
-                    {currentCaseDocId && caseStatus !== 'Finalized' && (
+                    {recordedBlob && caseStatus !== 'Finalized' && (
                       <button 
                         onClick={async () => {
-                          if (mediaRecorderRef.current && isRecording) return;
-                          setIsProcessing(true);
-                          try {
-                             // This is a placeholder since we don't have the blob anymore
-                             // In a real app we'd store the blob or re-fetch from storage
-                             // For now we just alert that it needs a new recording or manual sync
-                             await updateDoc(doc(db, 'cases', currentCaseDocId), { 
-                               status: 'Processing',
-                               updatedAt: serverTimestamp() 
-                             });
-                             // If we had the last blob we would call processAudio here.
-                             // But since it's a web app without persistent blob storage in state for long,
-                             // we'll just ensure the UI shows it's processing if they just finished.
-                             alert("The system will attempt to sync the latest data. Please ensure recording was stopped correctly.");
-                          } catch (e) {
-                             console.error(e);
-                          } finally {
-                             setIsProcessing(false);
-                          }
+                          if (!currentCaseDocId) return;
+                          await processAudio(recordedBlob.blob, currentCaseDocId, recordedBlob.mimeType);
+                          setRecordedBlob(null);
                         }}
                         disabled={isProcessing || isRecording}
-                        className="btn-secondary py-2 px-4 text-[10px] uppercase border-indigo-200 text-indigo-700 hover:bg-blue-50"
+                        className="btn-primary py-2 px-6 text-[11px] uppercase bg-indigo-600 hover:bg-indigo-700 shadow-indigo-900/20"
                       >
-                        <Zap className="w-4 h-4" />
-                        Reprocess
+                        <Mic className="w-4 h-4" />
+                        {(t as any).transcribe}
                       </button>
                     )}
                     {currentCaseDocId && caseStatus !== 'Finalized' && (
@@ -2112,6 +2122,15 @@ export default function App() {
             </div>
             <div className="p-8">
                <p className="text-center text-sm font-bold text-slate-500 mb-6 uppercase tracking-widest">{t.scanningTitle}</p>
+               <div className="flex justify-center mb-6">
+                  <button 
+                    onClick={() => setCameraFacingMode(prev => prev === 'user' ? 'environment' : 'user')}
+                    className="px-6 py-2 bg-police-blue text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 flex items-center gap-2 shadow-lg shadow-blue-900/20"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${cameraFacingMode === 'user' ? 'rotate-180' : ''} transition-transform`} />
+                    {(t as any).switchCamera} ({cameraFacingMode === 'user' ? 'Front' : 'Back'})
+                  </button>
+               </div>
                <div 
                  ref={qrScannerCallback}
                  id="qr-reader" 
@@ -2172,13 +2191,13 @@ export default function App() {
                 <div className="p-10">
                   {verifiedCase ? (
                     <div className="text-center">
-                      <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
-                        <ShieldCheck className="w-14 h-14 text-green-600" />
+                      <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
+                        <ShieldCheck className="w-10 h-10 text-green-600" />
                       </div>
-                      <h2 className="text-2xl font-black text-slate-900 mb-1">{t.verifySuccess}</h2>
-                      <p className="text-slate-500 text-sm font-bold uppercase tracking-widest mb-8">{t.officialEntry}</p>
+                      <h2 className="text-2xl font-black text-slate-900 mb-1">{(t as any).verifyScannedRecord}</h2>
+                      <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-8">{(t as any).dataMatches}</p>
                       
-                      <div className="bg-slate-50 border border-slate-100 rounded-3xl p-6 text-left space-y-4 mb-8">
+                      <div className="bg-slate-50 border border-slate-100 rounded-3xl p-6 text-left space-y-4 mb-8 max-h-[400px] overflow-y-auto">
                          <div className="flex justify-between items-start">
                            <div>
                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t.caseId}</span>
@@ -2201,16 +2220,28 @@ export default function App() {
                          </div>
                          <div className="pt-4 border-t border-slate-200">
                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-sans">{t.snapshot}</span>
-                           <p className="text-sm font-ethiopic text-slate-600 line-clamp-3 mt-1 italic">{verifiedCase.transcription}</p>
+                           <p className="text-sm font-ethiopic text-slate-600 mt-2 italic leading-relaxed">{verifiedCase.transcription}</p>
                          </div>
                       </div>
                       
-                      <button 
-                        onClick={() => { setScanResult(null); setSelectedCase(verifiedCase); }}
-                        className="w-full btn-primary py-5 rounded-2xl text-lg shadow-xl shadow-blue-200 font-sans tracking-widest font-black uppercase text-sm"
-                      >
-                        {t.caseDetails}
-                      </button>
+                      <div className="grid grid-cols-2 gap-4">
+                        <button 
+                          onClick={() => { setScanResult(null); setVerifiedCase(null); }}
+                          className="btn-secondary py-4 rounded-2xl font-sans font-bold uppercase tracking-widest text-xs"
+                        >
+                          Cancel
+                        </button>
+                        <button 
+                          onClick={() => { 
+                            setScanResult(null); 
+                            setSelectedCase(verifiedCase); 
+                            alert("የመዝገቡ ትክክለኛነት ተረጋግጧል! (Record validity confirmed)");
+                          }}
+                          className="btn-primary py-4 rounded-2xl shadow-xl shadow-blue-200 font-sans tracking-widest font-black uppercase text-xs"
+                        >
+                          {(t as any).confirmVerification}
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="text-center py-10">
