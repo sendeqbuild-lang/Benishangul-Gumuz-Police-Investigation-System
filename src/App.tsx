@@ -57,7 +57,8 @@ import {
   onAuthStateChanged, 
   User as FirebaseUser,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword
+  createUserWithEmailAndPassword,
+  updateProfile
 } from 'firebase/auth';
 import { 
   collection, 
@@ -97,9 +98,121 @@ interface CaseRecord {
   investigatorUid: string;
   investigatorEmail: string;
   updatedAt: any;
+  recordCount?: number;
+  hasVideo?: boolean;
 }
 
-const translations = {
+interface Translation {
+  title: string;
+  subtitle: string;
+  signIn: string;
+  email: string;
+  password: string;
+  authOnly: string;
+  investigator: string;
+  supervisor: string;
+  admin: string;
+  logout: string;
+  addInvestigator: string;
+  fullName: string;
+  phone: string;
+  rank: string;
+  accPassword: string;
+  register: string;
+  team: string;
+  name: string;
+  joined: string;
+  testimonyInfo: string;
+  caseId: string;
+  subjectName: string;
+  role: string;
+  language: string;
+  history: string;
+  noHistory: string;
+  finalize: string;
+  back: string;
+  processing: string;
+  processingSub: string;
+  placeholder: string;
+  locked: string;
+  oversight: string;
+  oversightSub: string;
+  search: string;
+  status: string;
+  caseDetails: string;
+  officer: string;
+  sync: string;
+  monitoring: string;
+  noFeeds: string;
+  feedSub: string;
+  statementReview: string;
+  captureArchive: string;
+  establish: string;
+  reports: string;
+  totalCases: string;
+  witnesses: string;
+  suspects: string;
+  complainants: string;
+  caseStatusStats: string;
+  languageStats: string;
+  liveFeed: string;
+  stopRecording: string;
+  startRecording: string;
+  pauseRecording: string;
+  resumeRecording: string;
+  remoteStop: string;
+  generateReport: string;
+  printReport: string;
+  recordingTypes: string;
+  videoRecords: string;
+  audioRecords: string;
+  witness: string;
+  suspect: string;
+  complainant: string;
+  witnessStatement: string;
+  suspectStatement: string;
+  complainantStatement: string;
+  giverSign: string;
+  receiverSign: string;
+  recordingMode: string;
+  video: string;
+  audio: string;
+  scanQR: string;
+  scanningTitle: string;
+  verifySuccess: string;
+  verifyFail: string;
+  verifyBtn: string;
+  myArchives: string;
+  openFile: string;
+  editActive: string;
+  transcribing: string;
+  transcriptionSuccess: string;
+  ready: string;
+  activeSession: string;
+  officialEntry: string;
+  liveStream: string;
+  stationID: string;
+  snapshot: string;
+  newInvestigation: string;
+  saveDraft: string;
+  draftSaved: string;
+  groupByDetective: string;
+  allDetectives: string;
+  byDetective: string;
+  scanFile: string;
+  scanCamera: string;
+  viewDetails: string;
+  totalStaff: string;
+  activeNow: string;
+  transcribe: string;
+  switchCamera: string;
+  verifyScannedRecord: string;
+  confirmVerification: string;
+  dataMatches: string;
+  dataMismatch: string;
+}
+
+const translations: Record<'EN' | 'AM', Translation> = {
   EN: {
     title: "BG Police Commission",
     subtitle: "Digital Testimony Capture System",
@@ -193,7 +306,21 @@ const translations = {
     snapshot: "Transcription Snapshot",
     newInvestigation: "New Investigation",
     saveDraft: "Save Draft",
-    draftSaved: "Draft Saved!"
+    draftSaved: "Draft Saved!",
+    groupByDetective: "Group by Officer",
+    allDetectives: "All Detectives",
+    byDetective: "By Detective",
+    scanFile: "Upload & Scan File",
+    scanCamera: "Scan with Camera",
+    viewDetails: "View Details",
+    totalStaff: "Total Staff",
+    activeNow: "Active Now",
+    transcribe: "Transcribe Voice",
+    switchCamera: "Switch Camera",
+    verifyScannedRecord: "Verify Scanned Record",
+    confirmVerification: "Confirm Authenticity",
+    dataMatches: "System data matches record",
+    dataMismatch: "System data mismatch"
   },
   AM: {
     title: "የቤንሻንጉል ጉሙዝ ፖሊስ ኮሚሽን",
@@ -224,7 +351,7 @@ const translations = {
     noHistory: "ምንም ንቁ ምርመራ የለም።",
     finalize: "አረጋግጥና አትም",
     back: "ተመለስ",
-    processing: "በአርቴፊሻል ኢንተለጀንስ ትርጉም እየተሰራ ነው...",
+    processing: "በአርቴፊሻል ኢንለጀንስ ትርጉም እየተሰራ ነው...",
     processingSub: "ወደ አማርኛ እየተተረጎመ ነው...",
     placeholder: "አውቶማቲክ ትርጉሙ እዚህ ይታያል...",
     locked: "ተቆልፏል - ተጠናቋል",
@@ -1227,8 +1354,8 @@ export default function App() {
                   </div>
                   <div>
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{card.label}</p>
-                    <p className="text-3xl font-black text-slate-800 leading-none mt-1">{card.val}</p>
-                    <p className="text-[10px] text-police-blue font-bold mt-2 opacity-0 group-hover:opacity-100 transition-opacity">{(t as any).viewDetails} →</p>
+                    <p className="text-3xl font-black text-slate-800 leading-none mt-1">{isMounted ? card.val : '...'}</p>
+                    <p className="text-[10px] text-police-blue font-bold mt-2 opacity-0 group-hover:opacity-100 transition-opacity">{t.viewDetails} →</p>
                   </div>
                 </div>
               ))}
@@ -1605,7 +1732,7 @@ export default function App() {
                 </div>
                 
                 <div className="p-4 space-y-3 max-h-[500px] overflow-y-auto custom-scrollbar bg-white/50">
-                  {filteredCases.filter(c => c.investigatorEmail === user?.email).map(c => (
+                  {isMounted && filteredCases.filter(c => c.investigatorEmail === user?.email).map(c => (
                     <div 
                       key={c.id}
                       onClick={() => selectCaseForEditing(c)}
@@ -1710,7 +1837,7 @@ export default function App() {
                         className="btn-primary py-2 px-6 text-[11px] uppercase bg-indigo-600 hover:bg-indigo-700 shadow-indigo-900/20"
                       >
                         <Mic className="w-4 h-4" />
-                        {(t as any).transcribe}
+                        {t.transcribe}
                       </button>
                     )}
                     {currentCaseDocId && caseStatus !== 'Finalized' && (
@@ -1827,7 +1954,7 @@ export default function App() {
                   }`}
                 >
                   <Users className="w-4 h-4" />
-                  {(t as any).groupByDetective}
+                  {t.groupByDetective}
                 </button>
                 <div className="relative w-full md:w-80">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -2128,7 +2255,7 @@ export default function App() {
                     className="px-6 py-2 bg-police-blue text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 flex items-center gap-2 shadow-lg shadow-blue-900/20"
                   >
                     <RefreshCw className={`w-4 h-4 ${cameraFacingMode === 'user' ? 'rotate-180' : ''} transition-transform`} />
-                    {(t as any).switchCamera} ({cameraFacingMode === 'user' ? 'Front' : 'Back'})
+                    {t.switchCamera} ({cameraFacingMode === 'user' ? 'Front' : 'Back'})
                   </button>
                </div>
                <div 
@@ -2194,8 +2321,8 @@ export default function App() {
                       <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
                         <ShieldCheck className="w-10 h-10 text-green-600" />
                       </div>
-                      <h2 className="text-2xl font-black text-slate-900 mb-1">{(t as any).verifyScannedRecord}</h2>
-                      <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-8">{(t as any).dataMatches}</p>
+                      <h2 className="text-2xl font-black text-slate-900 mb-1">{t.verifyScannedRecord}</h2>
+                      <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-8">{t.dataMatches}</p>
                       
                       <div className="bg-slate-50 border border-slate-100 rounded-3xl p-6 text-left space-y-4 mb-8 max-h-[400px] overflow-y-auto">
                          <div className="flex justify-between items-start">
@@ -2239,7 +2366,7 @@ export default function App() {
                           }}
                           className="btn-primary py-4 rounded-2xl shadow-xl shadow-blue-200 font-sans tracking-widest font-black uppercase text-xs"
                         >
-                          {(t as any).confirmVerification}
+                          {t.confirmVerification}
                         </button>
                       </div>
                     </div>
