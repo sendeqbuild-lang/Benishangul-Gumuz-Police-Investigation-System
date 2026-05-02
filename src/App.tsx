@@ -229,6 +229,14 @@ interface Translation {
   convertToText: string;
   noRecordings: string;
   recordingSaved: string;
+  uploadLogo: string;
+  logoUpdated: string;
+  brandingSettings: string;
+  watermark: string;
+  liveMonitoringActive: string;
+  monitorNow: string;
+  micSelection: string;
+  audioDevices: string;
 }
 
 const translations: Record<'EN' | 'AM', Translation> = {
@@ -343,7 +351,15 @@ const translations: Record<'EN' | 'AM', Translation> = {
     savedRecordings: "Case Files & Recordings",
     convertToText: "Convert to Text (Amharic)",
     noRecordings: "No files saved for this case yet.",
-    recordingSaved: "Recording saved to case file."
+    recordingSaved: "Recording saved to case file.",
+    uploadLogo: "Upload Police Logo",
+    logoUpdated: "Logo updated successfully.",
+    brandingSettings: "Branding",
+    watermark: "Watermark",
+    liveMonitoringActive: "Live Monitoring Active",
+    monitorNow: "Monitor Live",
+    micSelection: "Select Microphone",
+    audioDevices: "Audio Devices"
   },
   AM: {
     title: "የቤንሻንጉል ጉሙዝ ፖሊስ ኮሚሽን",
@@ -462,7 +478,9 @@ const translations: Record<'EN' | 'AM', Translation> = {
     brandingSettings: "የማንነት መገለጫ (Branding)",
     watermark: "የውሃ ምልክት (Watermark)",
     liveMonitoringActive: "የቀጥታ ስርጭት ክትትል እየተካሄደ ነው",
-    monitorNow: "ቀጥታ ተከታተል"
+    monitorNow: "ቀጥታ ተከታተል",
+    micSelection: "ማይክሮፎን ምረጥ (Select Mic)",
+    audioDevices: "የድምፅ አማራጮች"
   }
 };
 
@@ -529,6 +547,8 @@ export default function App() {
   const [activeReportFilter, setActiveReportFilter] = useState<{type: string, value: string} | null>(null);
   const [cameraFacingMode, setCameraFacingMode] = useState<'user' | 'environment'>('environment');
   const [recordedBlob, setRecordedBlob] = useState<{blob: Blob, mimeType: string} | null>(null);
+  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedMicId, setSelectedMicId] = useState<string>('');
 
   // Admin Form State
   const [newStaff, setNewStaff] = useState({
@@ -549,6 +569,24 @@ export default function App() {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
+
+  const getDevices = useCallback(async () => {
+    try {
+      if (!navigator.mediaDevices?.enumerateDevices) return;
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setAudioDevices(devices.filter(d => d.kind === 'audioinput'));
+    } catch (err) {
+      console.error("Error listing devices:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && navigator.mediaDevices) {
+      getDevices();
+      navigator.mediaDevices.addEventListener('devicechange', getDevices);
+      return () => navigator.mediaDevices.removeEventListener('devicechange', getDevices);
+    }
+  }, [getDevices]);
 
   // Auth Listener
   useEffect(() => {
@@ -822,7 +860,7 @@ export default function App() {
 
     try {
       const constraints = { 
-        audio: {
+        audio: selectedMicId ? { deviceId: { exact: selectedMicId } } : {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
@@ -2121,6 +2159,28 @@ export default function App() {
                 <div className="p-6 bg-slate-900 text-white text-center">
                   <div className="text-4xl font-mono mb-6">{caseInfo.recordingMode === 'Document' ? 'DOCUMENT OCR' : formatTime(duration)}</div>
                   <div className="flex flex-col gap-4">
+                    {/* Mic Selection (Always visible in Audio/Video modes) */}
+                    {caseInfo.recordingMode !== 'Document' && (
+                      <div className="bg-white/5 border border-white/10 rounded-2xl p-3 flex flex-col gap-1 text-left">
+                        <label className="text-[9px] font-black text-blue-300 uppercase tracking-widest flex items-center gap-2">
+                           <Mic className="w-3 h-3" />
+                           {t.micSelection}
+                        </label>
+                        <select 
+                          value={selectedMicId}
+                          onChange={(e) => setSelectedMicId(e.target.value)}
+                          className="bg-transparent border-none text-[11px] font-bold p-0 focus:ring-0 text-white cursor-pointer"
+                        >
+                          <option value="" className="text-slate-900">Default / System Auto</option>
+                          {audioDevices.map(device => (
+                            <option key={device.deviceId} value={device.deviceId} className="text-slate-900">
+                              {device.label || `Microphone ${device.deviceId.substring(0, 5)}`}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
                     {!isRecording ? (
                       caseInfo.recordingMode === 'Document' ? (
                         <div className="grid grid-cols-1 gap-3">
