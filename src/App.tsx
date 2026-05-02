@@ -536,6 +536,7 @@ export default function App() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const recognitionRef = useRef<any>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
 
@@ -600,6 +601,13 @@ export default function App() {
     });
     return () => unsubscribe();
   }, [isAdmin]);
+
+  // Auto-scroll transcription while recording
+  useEffect(() => {
+    if (isRecording && textareaRef.current) {
+      textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
+    }
+  }, [transcription, isRecording]);
 
   // Sync current transcription to Firestore
   useEffect(() => {
@@ -1085,19 +1093,26 @@ export default function App() {
         data: base64data,
         mimeType: mimeType,
         duration: dur,
+        transcription: transcription, // Save the real-time transcription captured during recording
         createdAt: new Date().toISOString()
       };
 
       await updateDoc(doc(db, 'cases', docId), {
         recordings: arrayUnion(recFile),
+        transcription: transcription, // Update main transcription with whatever we have
         updatedAt: serverTimestamp()
       });
 
       setShowSuccessToast(true);
       setTimeout(() => setShowSuccessToast(false), 3000);
       
-      // Also trigger initial transcription automatically for the new recording
-      await transcribeRecording(base64data, docId, mimeType);
+      // Only call Gemini if we have a valid key (detected via failure or simple check)
+      // If we already have real-time transcription, and API likely fails, we could skip it or handle gracefully
+      try {
+        await transcribeRecording(base64data, docId, mimeType);
+      } catch (e) {
+        console.warn("Auto-transcription skipped or failed, using real-time results.");
+      }
     } catch (err) {
       console.error("Save recording error:", err);
       setError("ፋይሉን ማስቀመጥ አልተቻለም። (Failed to save recording)");
@@ -1123,7 +1138,14 @@ export default function App() {
       setTimeout(() => setShowSuccessToast(false), 5000);
     } catch (err: any) {
       console.error('Transcription error:', err);
-      setError('ድምፁን ወደ ፅሁፍ መቀየር አልተቻለም።');
+      let userMessage = 'ድምፁን ወደ ፅሁፍ መቀየር አልተቻለም።';
+      
+      // Check for API key invalid error
+      if (err?.message?.includes('API key not valid') || JSON.stringify(err).includes('API_KEY_INVALID')) {
+        userMessage = 'የ Gemini API Key በትክክል አልተዋቀረም። እባክዎ በ Settings > Secrets ውስጥ ያስገቡ። እስከዚያው ድረስ ያለ ቁልፍ የሚሰራውን የቀጥታ ቀረጻ (Real-time) ይጠቀሙ።';
+      }
+      
+      setError(userMessage);
     } finally {
       setIsProcessing(false);
     }
@@ -1877,9 +1899,13 @@ export default function App() {
                                    setTranscription(prev => prev ? prev + "\n\n" + result : result);
                                    setShowSuccessToast(true);
                                    setTimeout(() => setShowSuccessToast(false), 5000);
-                                 } catch (err) {
+                                 } catch (err: any) {
                                    console.error(err);
-                                   setError("ሰነዱን ማንበብ አልተቻለም። (Failed to process document)");
+                                   let userMessage = "ሰነዱን ማንበብ አልተቻለም። (Failed to process document)";
+                                   if (err?.message === 'INVALID_API_KEY') {
+                                     userMessage = 'የ Gemini API Key በትክክል አልተዋቀረም (Invalid API Key). OCR መጠቀም አይቻልም።';
+                                   }
+                                   setError(userMessage);
                                  } finally {
                                    setIsProcessing(false);
                                  }
@@ -1932,7 +1958,12 @@ export default function App() {
                     )}
                   </div>
                   <p className="text-[10px] uppercase font-bold text-slate-500 mt-6 tracking-widest text-center">
-                    {isRecording ? 'Video & Audio Capture Active' : 'System Ready'}
+                    {isRecording ? (
+                      <span className="flex items-center justify-center gap-2 text-green-600">
+                        <Zap className="w-3 h-3 animate-pulse" />
+                        Keyless Transcription Active (ያለ ቁልፍ እየተጻፈ ነው)
+                      </span>
+                    ) : 'System Ready'}
                   </p>
                 </div>
               </div>
@@ -2132,6 +2163,7 @@ export default function App() {
                     )}
                   </AnimatePresence>
                   <textarea 
+                    ref={textareaRef}
                     className="w-full h-full resize-none border-none focus:ring-0 text-xl md:text-2xl leading-relaxed font-ethiopic text-slate-800 placeholder:text-slate-200"
                     value={transcription}
                     onChange={(e) => setTranscription(e.target.value)}
