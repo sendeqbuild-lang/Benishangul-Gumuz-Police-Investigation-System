@@ -1474,6 +1474,8 @@ export default function App() {
 
   const verifyUrl = isMounted ? `${window.location.origin}${window.location.pathname}?verify=${caseInfo.caseId || 'UNK'}` : '';
 
+  if (!isMounted) return null;
+
   if (loadingApp) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
