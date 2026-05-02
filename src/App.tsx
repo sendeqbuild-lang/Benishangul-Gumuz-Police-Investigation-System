@@ -50,7 +50,7 @@ import {
   OperationType, 
   handleFirestoreError 
 } from './lib/firebase';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5QrcodeScanner, Html5Qrcode } from 'html5-qrcode';
 import { 
   signInWithPopup, 
   signOut, 
@@ -911,51 +911,57 @@ export default function App() {
     }
   };
 
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
 
   useEffect(() => {
     if (showScanner) {
       const timer = setTimeout(() => {
-        const element = document.getElementById("qr-reader");
+        const elementId = "qr-reader";
+        const element = document.getElementById(elementId);
         if (element && !scannerRef.current) {
           try {
+            const html5QrCode = new Html5Qrcode(elementId);
+            scannerRef.current = html5QrCode;
+            
             const config = { 
               fps: 15, 
               qrbox: (viewWidth: number, viewHeight: number) => {
                 const minDimension = Math.min(viewWidth, viewHeight);
                 return { width: minDimension * 0.7, height: minDimension * 0.7 };
               },
-              videoConstraints: {
-                facingMode: cameraFacingMode
-              },
               aspectRatio: 1.0
             };
-            scannerRef.current = new Html5QrcodeScanner("qr-reader", config, false);
-            scannerRef.current.render(
+            
+            html5QrCode.start(
+              { facingMode: cameraFacingMode },
+              config,
               (decodedText) => {
                 handleScanSuccess(decodedText);
-              }, 
-              (error) => {
+              },
+              (errorMessage) => {
                 // Ignore noise
-                if (typeof error === 'string' && error.includes('NotFound')) return;
               }
-            );
+            ).catch(err => {
+              console.error("Scanner start failed:", err);
+              setError("የካሜራ ስካነሩን ማስጀመር አልተቻለም። እባክዎ ካሜራውን መጠቀም እንደሚቻል ያረጋግጡ። (Scanner failed to start.)");
+            });
           } catch (err) {
             console.error("Scanner setup failed:", err);
-            setError("የካሜራ ስካነሩን ማስጀመር አልተቻለም። እባክዎ ካሜራውን መጠቀም እንደሚቻል ያረጋግጡ። (Scanner failed to start. Check camera permissions.)");
           }
         }
       }, 500);
+
       return () => {
         clearTimeout(timer);
         if (scannerRef.current) {
-          scannerRef.current.clear().catch(error => {
-            // Ignore error if it's already cleared or element removed
-            if (!(error as string)?.includes('DOM')) {
-              console.error("Scanner clear error", error);
-            }
-          });
-          scannerRef.current = null;
+          if (scannerRef.current.isScanning) {
+            scannerRef.current.stop().then(() => {
+               console.log("Scanner stopped");
+               scannerRef.current = null;
+            }).catch(err => console.warn("Scanner stop error:", err));
+          } else {
+            scannerRef.current = null;
+          }
         }
       };
     }
@@ -2292,15 +2298,28 @@ export default function App() {
                     <input 
                       type="file" 
                       accept="image/*" 
-                      onChange={(e) => {
+                      onChange={async (e) => {
                         const file = e.target.files?.[0];
-                        if (file && scannerRef.current) {
-                          scannerRef.current.scanFile(file, true)
-                            .then(handleScanSuccess)
-                            .catch(err => {
-                              console.error(err);
-                              setError("Could not find QR code in image.");
-                            });
+                        if (!file) return;
+                        
+                        try {
+                          let scanner = scannerRef.current;
+                          let shouldDispose = false;
+                          
+                          if (!scanner) {
+                            scanner = new Html5Qrcode("qr-reader");
+                            shouldDispose = true;
+                          }
+                          
+                          const decodedText = await scanner.scanFile(file, true);
+                          handleScanSuccess(decodedText);
+                          
+                          if (shouldDispose) {
+                            // No need to keep it if it was just for file
+                          }
+                        } catch (err) {
+                           console.error(err);
+                           setError("QR ኮድ በምስሉ ውስጥ አልተገኘም። (Could not find QR code in image.)");
                         }
                       }}
                       className="absolute inset-0 opacity-0 cursor-pointer z-10"
