@@ -4,14 +4,16 @@ let aiInstance: GoogleGenAI | null = null;
 
 function getAI() {
   if (!aiInstance) {
-    // Vite will replace these strings with actual values during build if set in environment
+    // Note: In this environment, GEMINI_API_KEY is provided via the shared session or environment.
+    // For local development or build, it uses VITE_ prefixed variables.
     const apiKey = 
-      process.env.GEMINI_API_KEY || 
-      process.env.VITE_GEMINI_API_KEY || 
-      (import.meta as any).env?.VITE_GEMINI_API_KEY;
+      (process.env as any).GEMINI_API_KEY || 
+      (process.env as any).VITE_GEMINI_API_KEY || 
+      (import.meta as any).env?.VITE_GEMINI_API_KEY ||
+      (window as any).VITE_GEMINI_API_KEY;
     
-    if (!apiKey) {
-      console.warn("Gemini functionality is limited: API Key not detected.");
+    if (!apiKey || apiKey.length < 10) {
+      console.warn("GEMINI_API_KEY detected as missing or invalid. Please set it in Settings > Secrets.");
     }
     
     aiInstance = new GoogleGenAI({ apiKey: apiKey || "" });
