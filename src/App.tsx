@@ -456,7 +456,13 @@ const translations: Record<'EN' | 'AM', Translation> = {
     savedRecordings: "የተቀመጡ የድምፅና ቪዲዮ ፋይሎች",
     convertToText: "ወደ ጽሁፍ ቀይር (Amharic)",
     noRecordings: "ለዚህ መዝገብ እስካሁን የተቀመጠ ፋይል የለም።",
-    recordingSaved: "ቀረጻው በመዝገቡ ውስጥ በትክክል ተቀምጧል።"
+    recordingSaved: "ቀረጻው በመዝገቡ ውስጥ በትክክል ተቀምጧል።",
+    uploadLogo: "የፖሊስ ሎጎ ጫን (Upload Logo)",
+    logoUpdated: "ሎጎው በትክክል ተቀይሯል።",
+    brandingSettings: "የማንነት መገለጫ (Branding)",
+    watermark: "የውሃ ምልክት (Watermark)",
+    liveMonitoringActive: "የቀጥታ ስርጭት ክትትል እየተካሄደ ነው",
+    monitorNow: "ቀጥታ ተከታተል"
   }
 };
 
@@ -489,6 +495,7 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [transcription, setTranscription] = useState('');
@@ -512,6 +519,7 @@ export default function App() {
   
   const [allCases, setAllCases] = useState<CaseRecord[]>([]);
   const [allStaff, setAllStaff] = useState<StaffProfile[]>([]);
+  const [systemSettings, setSystemSettings] = useState<{ policeLogo?: string, stationName?: string } | null>(null);
   const [selectedCase, setSelectedCase] = useState<CaseRecord | null>(null);
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -535,7 +543,9 @@ export default function App() {
   // Refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const recognitionRef = useRef<any>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
@@ -548,6 +558,14 @@ export default function App() {
       ...prev,
       caseId: prev.caseId || generateCaseId()
     }));
+
+    // Fetch System Settings
+    const settingsUnsubscribe = onSnapshot(doc(db, 'settings', 'global'), (doc) => {
+      if (doc.exists()) {
+        setSystemSettings(doc.data() as any);
+      }
+    });
+
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       if (u) {
         setUser({ uid: u.uid, email: u.email || '', displayName: u.displayName || '' });
@@ -559,7 +577,10 @@ export default function App() {
       }
       setLoadingApp(false);
     });
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      settingsUnsubscribe();
+    };
   }, []);
 
   // Cases Listener
@@ -776,6 +797,12 @@ export default function App() {
     }
   }, [stream]);
 
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream]);
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -808,18 +835,32 @@ export default function App() {
       };
 
       const liveStream = await navigator.mediaDevices.getUserMedia(constraints);
-      
       setStream(liveStream);
 
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
       const options: MediaRecorderOptions = {};
+      
       if (caseInfo.recordingMode === 'Video') {
-        options.mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus') 
-          ? 'video/webm;codecs=vp9,opus' 
-          : 'video/webm';
+        if (isIOS) {
+          options.mimeType = 'video/mp4;codecs=avc1';
+        } else {
+          options.mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus') 
+            ? 'video/webm;codecs=vp9,opus' 
+            : 'video/webm';
+        }
       } else {
-        options.mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : 'audio/webm';
+        if (isIOS) {
+          options.mimeType = 'audio/mp4';
+        } else {
+          options.mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+            ? 'audio/webm;codecs=opus'
+            : 'audio/webm';
+        }
+      }
+
+      // Check if the selected mimeType is actually supported, fallback to empty options if not
+      if (options.mimeType && !MediaRecorder.isTypeSupported(options.mimeType)) {
+        delete options.mimeType;
       }
 
       const recorder = new MediaRecorder(liveStream, options);
@@ -850,6 +891,11 @@ export default function App() {
       }
       
       setCaseStatus('Recording');
+
+      // Start WebRTC Broadcasting
+      if (docId) {
+        startBroadcasting(docId, liveStream);
+      }
 
       // Initialize Speech Recognition (Keyless)
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -905,6 +951,100 @@ export default function App() {
     }
   };
 
+  const startBroadcasting = async (caseDocId: string, localStream: MediaStream) => {
+    try {
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+      pcRef.current = pc;
+
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          addDoc(collection(db, 'cases', caseDocId, 'signals'), {
+            type: 'candidate',
+            candidate: event.candidate.toJSON(),
+            role: 'broadcaster',
+            createdAt: serverTimestamp()
+          });
+        }
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      await setDoc(doc(db, 'cases', caseDocId, 'signals', 'offer'), {
+        type: offer.type,
+        sdp: offer.sdp,
+        createdAt: serverTimestamp()
+      });
+
+      onSnapshot(doc(db, 'cases', caseDocId, 'signals', 'answer'), (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          if (pc.signalingState !== 'stable') {
+            pc.setRemoteDescription(new RTCSessionDescription(data as any));
+          }
+        }
+      });
+    } catch (err) {
+      console.error("WebRTC Error:", err);
+    }
+  };
+
+  const joinLiveStream = async (caseDocId: string) => {
+    try {
+      setRemoteStream(null);
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+      pcRef.current = pc;
+
+      pc.ontrack = (event) => {
+        setRemoteStream(event.streams[0]);
+      };
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          addDoc(collection(db, 'cases', caseDocId, 'signals'), {
+            type: 'candidate',
+            candidate: event.candidate.toJSON(),
+            role: 'watcher',
+            createdAt: serverTimestamp()
+          });
+        }
+      };
+
+      onSnapshot(doc(db, 'cases', caseDocId, 'signals', 'offer'), async (snapshot) => {
+        if (snapshot.exists()) {
+          const offer = snapshot.data();
+          if (pc.signalingState === 'stable') return;
+          await pc.setRemoteDescription(new RTCSessionDescription(offer as any));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          await setDoc(doc(db, 'cases', caseDocId, 'signals', 'answer'), {
+            type: answer.type,
+            sdp: answer.sdp,
+            createdAt: serverTimestamp()
+          });
+        }
+      });
+
+      const q = query(collection(db, 'cases', caseDocId, 'signals'), where('role', '==', 'broadcaster'));
+      onSnapshot(q, (snapshot) => {
+        snapshot.docChanges().forEach(change => {
+          if (change.type === 'added') {
+            const data = change.doc.data();
+            pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+          }
+        });
+      });
+    } catch (err) {
+      console.error("Join WebRTC Error:", err);
+    }
+  };
+
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
@@ -940,21 +1080,74 @@ export default function App() {
     return new Blob(byteArrays, { type: mimeType });
   };
 
-  const pauseRecording = () => {
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      setError("የፋይሉ መጠን ከ 2MB መብለጥ የለበትም (Max 2MB)");
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result?.toString() || '');
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      await setDoc(doc(db, 'settings', 'global'), {
+        policeLogo: base64,
+        updatedAt: serverTimestamp(),
+        updatedBy: user?.email
+      }, { merge: true });
+
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 3000);
+    } catch (err) {
+      console.error("Logo upload error:", err);
+      setError("ሎጎውን መጫን አልተቻለም። (Failed to upload logo)");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const pauseRecording = async () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.pause();
       setIsPaused(true);
       if (timerRef.current) clearInterval(timerRef.current);
+      
+      if (currentCaseDocId) {
+        try {
+          await updateDoc(doc(db, 'cases', currentCaseDocId), {
+            status: 'Recording', // We keep it as Recording but maybe add a sub-status
+            isPaused: true,
+            updatedAt: serverTimestamp()
+          });
+        } catch (err) { console.error(err); }
+      }
     }
   };
 
-  const resumeRecording = () => {
+  const resumeRecording = async () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
       mediaRecorderRef.current.resume();
       setIsPaused(false);
       timerRef.current = window.setInterval(() => {
         setDuration(prev => prev + 1);
       }, 1000);
+
+      if (currentCaseDocId) {
+        try {
+          await updateDoc(doc(db, 'cases', currentCaseDocId), {
+            isPaused: false,
+            updatedAt: serverTimestamp()
+          });
+        } catch (err) { console.error(err); }
+      }
     }
   };
 
@@ -1253,8 +1446,12 @@ export default function App() {
             className="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8"
           >
             <div className="text-center mb-8">
-              <div className="w-20 h-20 bg-police-blue rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
-                 <Shield className="w-10 h-10 text-white" />
+              <div className="w-20 h-20 bg-police-blue rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg overflow-hidden border-4 border-white">
+                 {systemSettings?.policeLogo ? (
+                   <img src={systemSettings.policeLogo} alt="Police Logo" className="w-full h-full object-contain" />
+                 ) : (
+                   <Shield className="w-10 h-10 text-white" />
+                 )}
               </div>
               <h1 className="text-2xl font-bold text-slate-900 mb-2">{t.title}</h1>
               <p className="text-slate-500 font-ethiopic">{t.subtitle}</p>
@@ -1340,8 +1537,12 @@ export default function App() {
                 >
                   <ChevronLeft className="w-5 h-5 text-white" />
                 </button>
-            <div className="w-10 h-10 md:w-12 md:h-12 bg-white rounded-2xl flex items-center justify-center shadow-lg transform -rotate-3 border-2 border-police-blue/20">
-              <Shield className="w-6 h-6 md:w-8 md:h-8 text-police-blue" />
+            <div className="w-10 h-10 md:w-12 md:h-12 bg-white rounded-2xl flex items-center justify-center shadow-lg transform -rotate-3 border-2 border-police-blue/20 overflow-hidden">
+              {systemSettings?.policeLogo ? (
+                <img src={systemSettings.policeLogo} alt="Police Logo" className="w-full h-full object-contain" />
+              ) : (
+                <Shield className="w-6 h-6 md:w-8 md:h-8 text-police-blue" />
+              )}
             </div>
             <div>
               <h1 className="text-lg md:text-2xl font-black text-white tracking-tighter leading-none">{t.title}</h1>
@@ -1633,7 +1834,43 @@ export default function App() {
               </button>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              <div className="lg:col-span-4">
+              <div className="lg:col-span-4 space-y-6">
+                {/* Branding Settings */}
+                <div className="card p-6 bg-gradient-to-br from-police-blue to-blue-900 text-white relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-4 opacity-10">
+                    <Shield className="w-24 h-24" />
+                  </div>
+                  <h2 className="text-lg font-bold mb-6 flex items-center gap-2 relative z-10">
+                    <Settings className="w-5 h-5 text-blue-200" />
+                    {t.brandingSettings}
+                  </h2>
+                  <div className="space-y-6 relative z-10">
+                    <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-blue-400/50 rounded-2xl bg-white/5 hover:bg-white/10 transition-colors group relative">
+                      {systemSettings?.policeLogo ? (
+                        <img src={systemSettings.policeLogo} alt="Police Logo" className="w-24 h-24 object-contain mb-4 drop-shadow-xl" />
+                      ) : (
+                        <Shield className="w-16 h-16 text-blue-200/50 mb-4" />
+                      )}
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handleLogoUpload}
+                        className="absolute inset-0 opacity-0 cursor-pointer"
+                      />
+                      <p className="text-xs font-bold text-blue-100 uppercase tracking-widest">{t.uploadLogo}</p>
+                    </div>
+                    <div className="p-4 bg-white/10 rounded-xl">
+                      <p className="text-[10px] uppercase font-black tracking-widest text-blue-200 mb-2">{t.watermark}</p>
+                      <div className="flex items-center gap-3">
+                         <div className="w-full h-1.5 bg-white/20 rounded-full overflow-hidden">
+                            <div className="h-full bg-green-400 w-1/4" />
+                         </div>
+                         <span className="text-[10px] font-black">25%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="card p-6">
                   <h2 className="text-lg font-bold mb-6 flex items-center gap-2">
                     <User className="w-5 h-5 text-police-blue" />
@@ -2464,7 +2701,7 @@ export default function App() {
                     {selectedCase.intervieweeName} • {t.statementReview}
                   </p>
                 </div>
-                <button onClick={() => setSelectedCase(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                <button onClick={() => { setSelectedCase(null); setRemoteStream(null); if (pcRef.current) { pcRef.current.close(); pcRef.current = null; } }} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
                   <X className="w-5 h-5 text-slate-400" />
                 </button>
               </div>
@@ -2486,20 +2723,37 @@ export default function App() {
                         </button>
                       </div>
                       
-                      <div className="mb-8 p-6 bg-slate-900 rounded-3xl relative overflow-hidden group shadow-2xl">
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent z-10" />
-                        <div className="relative z-20 flex flex-col items-center justify-center py-10">
-                          <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center animate-pulse mb-4">
-                            <Video className="w-8 h-8 text-red-500" />
+                        <div className="mb-8 p-6 bg-slate-900 rounded-3xl relative overflow-hidden group shadow-2xl">
+                          {remoteStream ? (
+                            <video
+                              ref={remoteVideoRef}
+                              autoPlay
+                              playsInline
+                              className="w-full aspect-video object-cover rounded-2xl"
+                            />
+                          ) : (
+                            <>
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent z-10" />
+                              <div className="relative z-20 flex flex-col items-center justify-center py-10">
+                                <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center animate-pulse mb-4">
+                                  <Video className="w-8 h-8 text-red-500" />
+                                </div>
+                                <button 
+                                  onClick={() => joinLiveStream(selectedCase.id)}
+                                  className="px-6 py-2 bg-red-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-red-700 shadow-lg shadow-red-900/20 font-sans"
+                                >
+                                  {t.monitorNow}
+                                </button>
+                                <p className="text-white font-black uppercase tracking-[0.2em] text-xs font-sans mt-4">{t.liveFeed}</p>
+                                <p className="text-slate-400 text-[10px] mt-1 font-bold font-sans">{t.stationID}</p>
+                              </div>
+                            </>
+                          )}
+                          <div className="absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-1 bg-red-600 text-white rounded-full text-[9px] font-black uppercase tracking-widest animate-pulse font-sans">
+                            <div className="w-2 h-2 rounded-full bg-white" />
+                            {t.liveStream}
                           </div>
-                          <p className="text-white font-black uppercase tracking-[0.2em] text-xs font-sans">{t.liveFeed}</p>
-                          <p className="text-slate-400 text-[10px] mt-1 font-bold font-sans">{t.stationID}</p>
                         </div>
-                        <div className="absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-1 bg-red-600 text-white rounded-full text-[9px] font-black uppercase tracking-widest animate-pulse font-sans">
-                          <div className="w-2 h-2 rounded-full bg-white" />
-                          {t.liveStream}
-                        </div>
-                      </div>
                     </div>
                   )}
                   <p className="text-lg md:text-2xl leading-[1.8] text-slate-800 whitespace-pre-line bg-slate-50 p-6 rounded-2xl border border-slate-100 italic">
@@ -2761,7 +3015,14 @@ export default function App() {
         <div className="w-[190mm] mx-auto min-h-screen relative p-[15mm]">
           {/* Header */}
           <div className="text-center mb-10 border-b-2 border-black pb-8 relative">
-             <div className="absolute top-0 right-0">
+             {/* Watermark Logo */}
+             {systemSettings?.policeLogo && (
+               <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.07] overflow-hidden z-0">
+                  <img src={systemSettings.policeLogo} alt="Watermark" className="w-[120mm]" />
+               </div>
+             )}
+             
+             <div className="absolute top-0 right-0 z-10">
                 <QRCodeCanvas 
                   value={verifyUrl} 
                   size={95}
@@ -2770,11 +3031,15 @@ export default function App() {
                 />
                 <p className="text-[7px] mt-1 font-bold text-center">SCAN TO VERIFY</p>
              </div>
-             <div className="flex justify-center mb-4">
-                <Shield className="w-16 h-16 text-black" />
+             <div className="flex justify-center mb-4 relative z-10">
+                {systemSettings?.policeLogo ? (
+                  <img src={systemSettings.policeLogo} alt="Police Logo" className="w-20 h-20 object-contain" />
+                ) : (
+                  <Shield className="w-16 h-16 text-black" />
+                )}
              </div>
-             <div className="text-2xl font-black uppercase tracking-wider mb-1 px-4">{translations.EN.title}</div>
-             <div className="text-xl font-bold mb-2 font-ethiopic">{translations.AM.title}</div>
+             <div className="text-2xl font-black uppercase tracking-wider mb-1 px-4 relative z-10">{translations.EN.title}</div>
+             <div className="text-xl font-bold mb-2 font-ethiopic relative z-10">{translations.AM.title}</div>
              
              {/* Dynamic Title based on Role */}
              <div className="text-[26pt] font-black border-y-2 border-black py-4 inline-block px-14 mb-4 font-ethiopic mt-4">
