@@ -15,10 +15,11 @@ function getAI() {
       (window as any).process?.env?.GEMINI_API_KEY;
     
     if (!apiKey || apiKey.length < 10) {
-      console.error("Gemini API Key is missing. Please add it to Settings > Secrets or contact the administrator.");
+      console.error("Gemini API Key is missing.");
+      throw new Error("MISSING_API_KEY");
     }
     
-    aiInstance = new GoogleGenAI({ apiKey: apiKey || "" });
+    aiInstance = new GoogleGenAI({ apiKey: apiKey });
   }
   return aiInstance;
 }
@@ -28,7 +29,7 @@ export async function processImageToText(imageBase64: string, mimeType: string) 
     const ai = getAI();
     
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash", // Using stable 1.5-flash for maximum compatibility
+      model: "gemini-1.5-flash",
       contents: {
         parts: [
           {
@@ -62,8 +63,9 @@ export async function processImageToText(imageBase64: string, mimeType: string) 
     return text.trim();
   } catch (error: any) {
     console.error("Gemini OCR Processing Error:", error);
-    let msg = error?.message || "Unknown error";
-    if (msg.includes("API key not valid")) {
+    const errorString = error?.message || String(error);
+    if (errorString === "MISSING_API_KEY") throw error;
+    if (errorString.includes("API key not valid") || errorString.includes("API_KEY_INVALID")) {
       throw new Error("INVALID_API_KEY");
     }
     throw error;
@@ -78,7 +80,7 @@ export async function transcribeAndTranslateAudio(audioBase64: string, mimeType:
     const cleanedMimeType = mimeType.split(';')[0];
     
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash", // Using stable 1.5-flash for maximum compatibility
+      model: "gemini-1.5-flash",
       contents: {
         parts: [
           {
@@ -117,6 +119,7 @@ export async function transcribeAndTranslateAudio(audioBase64: string, mimeType:
   } catch (error: any) {
     console.error("Gemini AI Processing Error:", error);
     const errorString = error?.message || String(error);
+    if (errorString === "MISSING_API_KEY") throw error;
     if (errorString.includes("API key not valid") || errorString.includes("API_KEY_INVALID")) {
       throw new Error("INVALID_API_KEY");
     }
