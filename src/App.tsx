@@ -39,7 +39,10 @@ import {
   Scan,
   Archive,
   FileX,
-  RefreshCw
+  RefreshCw,
+  FileSearch,
+  Upload,
+  Camera
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { transcribeAndTranslateAudio } from './lib/gemini';
@@ -471,7 +474,7 @@ export default function App() {
     intervieweeName: '',
     personType: 'Witness' as const,
     language: 'Amharic',
-    recordingMode: 'Audio' as 'Audio' | 'Video'
+    recordingMode: 'Audio' as 'Audio' | 'Video' | 'Document'
   });
   
   const [allCases, setAllCases] = useState<CaseRecord[]>([]);
@@ -874,6 +877,13 @@ export default function App() {
   };
 
   const handleScanSuccess = async (decodedText: string) => {
+    // If we are in Document mode, maybe we want to use the result as text if it's not a caseId
+    if (caseInfo.recordingMode === 'Document') {
+       setTranscription(prev => prev ? prev + "\n\n" + decodedText : decodedText);
+       setShowScanner(false);
+       return;
+    }
+
     let caseId = decodedText;
     if (decodedText.startsWith('http')) {
       try {
@@ -1678,6 +1688,13 @@ export default function App() {
                           >
                             <Mic className="w-4 h-4" /> {t.audio}
                           </button>
+                          <button 
+                            onClick={() => setCaseInfo({...caseInfo, recordingMode: 'Document'})}
+                            disabled={isRecording || caseStatus === 'Finalized'}
+                            className={`flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold border-2 transition-all ${caseInfo.recordingMode === 'Document' ? 'border-police-blue bg-blue-50 text-police-blue' : 'border-slate-100 text-slate-400 hover:bg-slate-50'}`}
+                          >
+                            <FileSearch className="w-4 h-4" /> ሰነድ (Doc)
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -1710,18 +1727,71 @@ export default function App() {
                     <span className="text-xs font-bold text-red-400 uppercase tracking-widest">Audio Capture Active</span>
                   </div>
                 )}
+                {caseInfo.recordingMode === 'Document' && (
+                   <div className="p-12 bg-slate-900 flex flex-col items-center justify-center min-h-[200px]">
+                      <FileText className="w-16 h-16 text-blue-400 mb-4 opacity-50" />
+                      <p className="text-xs text-slate-400 text-center font-ethiopic">የምርመራ ሰነዶችን ፎቶ በማንሳት ወይም ፋይል በመጫን ወደ ፅሁፍ ይቀይሩ። (Upload or snap document to convert to text)</p>
+                   </div>
+                )}
                 <div className="p-6 bg-slate-900 text-white text-center">
-                  <div className="text-4xl font-mono mb-6">{formatTime(duration)}</div>
+                  <div className="text-4xl font-mono mb-6">{caseInfo.recordingMode === 'Document' ? 'DOCUMENT OCR' : formatTime(duration)}</div>
                   <div className="flex flex-col gap-4">
                     {!isRecording ? (
-                      <button 
-                        onClick={startRecording} 
-                        disabled={isProcessing || caseStatus === 'Finalized'} 
-                        className="btn-primary w-full py-4 text-lg bg-green-600 hover:bg-green-700 shadow-green-900/20"
-                      >
-                        <Mic className="w-6 h-6" />
-                        {t.startRecording}
-                      </button>
+                      caseInfo.recordingMode === 'Document' ? (
+                        <div className="grid grid-cols-1 gap-3">
+                           <div className="relative">
+                             <input 
+                               type="file" 
+                               accept="image/*"
+                               disabled={isProcessing || caseStatus === 'Finalized'}
+                               onChange={async (e) => {
+                                 const file = e.target.files?.[0];
+                                 if (!file) return;
+                                 setIsProcessing(true);
+                                 try {
+                                   const base64 = await new Promise<string>((resolve) => {
+                                      const reader = new FileReader();
+                                      reader.onload = () => resolve(reader.result?.toString().split(',')[1] || '');
+                                      reader.readAsDataURL(file);
+                                   });
+                                   const { processImageToText } = await import('./lib/gemini');
+                                   const result = await processImageToText(base64, file.type);
+                                   setTranscription(prev => prev ? prev + "\n\n" + result : result);
+                                   setShowSuccessToast(true);
+                                   setTimeout(() => setShowSuccessToast(false), 5000);
+                                 } catch (err) {
+                                   console.error(err);
+                                   setError("ሰነዱን ማንበብ አልተቻለም። (Failed to process document)");
+                                 } finally {
+                                   setIsProcessing(false);
+                                 }
+                               }}
+                               className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                             />
+                             <button className="btn-primary w-full py-4 text-lg bg-blue-600 hover:bg-blue-700 shadow-blue-900/20">
+                               <Upload className="w-6 h-6" />
+                               {t.scanFile}
+                             </button>
+                           </div>
+                           <p className="text-[10px] text-slate-500 uppercase tracking-widest">OR</p>
+                           <button 
+                             onClick={() => setShowScanner(true)}
+                             className="btn-primary w-full py-4 text-lg bg-indigo-600 hover:bg-indigo-700 shadow-indigo-900/20"
+                           >
+                             <Camera className="w-6 h-6" />
+                             {t.scanCamera}
+                           </button>
+                        </div>
+                      ) : (
+                        <button 
+                          onClick={startRecording} 
+                          disabled={isProcessing || caseStatus === 'Finalized'} 
+                          className="btn-primary w-full py-4 text-lg bg-green-600 hover:bg-green-700 shadow-green-900/20"
+                        >
+                          <Mic className="w-6 h-6" />
+                          {t.startRecording}
+                        </button>
+                      )
                     ) : (
                       <div className="flex flex-col gap-2 w-full">
                         <div className="grid grid-cols-2 gap-2">
@@ -2290,8 +2360,47 @@ export default function App() {
                </div>
                <div 
                  id="qr-reader" 
-                 className="rounded-2xl overflow-hidden border-4 border-slate-100 shadow-inner bg-slate-50"
-               ></div>
+                 className="rounded-2xl overflow-hidden border-4 border-slate-100 shadow-inner bg-slate-50 min-h-[300px] relative"
+               >
+                 {caseInfo.recordingMode === 'Document' && (
+                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20">
+                       <button 
+                         onClick={async () => {
+                            if (scannerRef.current && scannerRef.current.isScanning) {
+                               try {
+                                  // html5-qrcode doesn't have a direct "snap" but we can get the video element
+                                  const video = document.querySelector('#qr-reader video') as HTMLVideoElement;
+                                  if (video) {
+                                     const canvas = document.createElement('canvas');
+                                     canvas.width = video.videoWidth;
+                                     canvas.height = video.videoHeight;
+                                     const ctx = canvas.getContext('2d');
+                                     ctx?.drawImage(video, 0, 0);
+                                     const base64 = canvas.toDataURL('image/jpeg').split(',')[1];
+                                     
+                                     setShowScanner(false);
+                                     setIsProcessing(true);
+                                     const { processImageToText } = await import('./lib/gemini');
+                                     const result = await processImageToText(base64, 'image/jpeg');
+                                     setTranscription(prev => prev ? prev + "\n\n" + result : result);
+                                     setShowSuccessToast(true);
+                                     setTimeout(() => setShowSuccessToast(false), 5000);
+                                  }
+                               } catch (err) {
+                                  console.error(err);
+                                  setError("ፎቶውን ማንበብ አልተቻለም። (Failed to capture/process image)");
+                               } finally {
+                                  setIsProcessing(false);
+                               }
+                            }
+                         }}
+                         className="bg-red-500 hover:bg-red-600 text-white w-16 h-16 rounded-full border-4 border-white shadow-xl flex items-center justify-center transition-transform active:scale-90"
+                       >
+                         <div className="w-8 h-8 rounded-full border-2 border-white/50" />
+                       </button>
+                    </div>
+                 )}
+               </div>
                
                <div className="mt-8 grid grid-cols-1 gap-3">
                   <div className="relative">
