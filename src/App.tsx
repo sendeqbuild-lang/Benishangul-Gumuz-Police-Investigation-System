@@ -1302,7 +1302,7 @@ export default function App() {
       // Only call Gemini if we have a valid key (detected via failure or simple check)
       // If we already have real-time transcription, and API likely fails, we could skip it or handle gracefully
       try {
-        await transcribeRecording(base64data, docId, mimeType);
+        await transcribeRecording(base64data, docId, mimeType, true);
       } catch (e) {
         console.warn("Auto-transcription skipped or failed, using real-time results.");
       }
@@ -1314,8 +1314,8 @@ export default function App() {
     }
   };
 
-  const transcribeRecording = async (base64data: string, docId: string, mimeType: string) => {
-    setIsProcessing(true);
+  const transcribeRecording = async (base64data: string, docId: string, mimeType: string, silent = false) => {
+    if (!silent) setIsProcessing(true);
     setError(null);
     try {
       const result = await transcribeAndTranslateAudio(base64data, mimeType, caseInfo.language);
@@ -1327,20 +1327,28 @@ export default function App() {
         status: 'Draft',
         updatedAt: serverTimestamp()
       });
-      setShowSuccessToast(true);
-      setTimeout(() => setShowSuccessToast(false), 5000);
+      if (!silent) {
+        setShowSuccessToast(true);
+        setTimeout(() => setShowSuccessToast(false), 5000);
+      }
     } catch (err: any) {
       console.error('Transcription error:', err);
-      let userMessage = 'ድምፁን ወደ ፅሁፍ መቀየር አልተቻለም።';
       
-      // Check for API key invalid error
-      if (err?.message?.includes('API key not valid') || JSON.stringify(err).includes('API_KEY_INVALID')) {
-        userMessage = 'የ Gemini API Key በትክክል አልተዋቀረም። እባክዎ በ Settings > Secrets ውስጥ ያስገቡ። እስከዚያው ድረስ ያለ ቁልፍ የሚሰራውን የቀጥታ ቀረጻ (Real-time) ይጠቀሙ።';
+      if (!silent) {
+        let userMessage = 'ድምፁን ወደ ፅሁፍ መቀየር አልተቻለም።';
+        
+        if (err?.message === 'MISSING_API_KEY') {
+          userMessage = 'የ Gemini API Key አልተገኘም። እባክዎ በ Settings > Secrets ውስጥ GEMINI_API_KEY ያስገቡ። እስከዚያው ድረስ ያለ ቁልፍ የሚሰራውን የቀጥታ ቀረጻ (Real-time) ይጠቀሙ።';
+        } else if (err?.message === 'INVALID_API_KEY') {
+          userMessage = 'የ Gemini API Key በትክክል አልተዋቀረም (Invalid Key)። እባክዎ በ Settings > Secrets ውስጥ ያለውን ቁልፍ ያረጋግጡ።';
+        } else if (JSON.stringify(err).includes('SAFETY') || err?.message?.includes('SAFETY')) {
+          userMessage = 'የደህንነት ገደብ ተጥሷል (Safety restriction)። ድምፁ ተቀባይነት የሌለው ይዘት ሊኖረው ይችላል።';
+        }
+        
+        setError(userMessage);
       }
-      
-      setError(userMessage);
     } finally {
-      setIsProcessing(false);
+      if (!silent) setIsProcessing(false);
     }
   };
 
