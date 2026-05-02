@@ -19,6 +19,9 @@ export async function transcribeAndTranslateAudio(audioBase64: string, mimeType:
   try {
     const ai = getAI();
     
+    // Clean mimeType: Gemini expects basic types like "audio/webm", not "audio/webm;codecs=opus"
+    const cleanedMimeType = mimeType.split(';')[0];
+    
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
@@ -26,28 +29,41 @@ export async function transcribeAndTranslateAudio(audioBase64: string, mimeType:
           {
             inlineData: {
               data: audioBase64,
-              mimeType: mimeType,
+              mimeType: cleanedMimeType,
             },
           },
           {
             text: `You are an expert transcriber and translator for the Benishangul-Gumuz Regional Police Commission in Ethiopia. 
-            The provided audio is a statement from a ${sourceLanguage} speaker. 
+            The audio provided is an official police statement.
+            
+            SOURCE LANGUAGE: ${sourceLanguage}
+            TARGET LANGUAGE: Amharic (አማርኛ)
             
             TASKS:
-            1. Transcribe the audio accurately.
-            2. Translate the statement into formal Amharic (አማርኛ).
-            3. Ensure the tone is objective and suitable for a legal police report.
-            4. If the speaker mentioned names, dates, or specific locations, preserve them exactly.
+            1. Transcribe the audio precisely as spoken.
+            2. If the source language is NOT Amharic, translate it into formal, accurate Amharic. If it IS Amharic, provide the polished transcription.
+            3. Ensure the tone is objective and formal, suitable for a regional police node report.
+            4. Preserve all names, dates, amounts, and locations exactly.
+            5. If there are multiple speakers, label them (e.g., [መርማሪ], [ቃል ሰጪ]).
             
-            Output ONLY the official Amharic transcription text. Do not add any conversational remarks or meta-text.`,
+            OUTPUT:
+            Return ONLY the final Amharic text. Do not include any introductory or concluding remarks.`,
           },
         ],
       },
     });
 
-    return response.text?.trim() || "Transcription failed. No text returned.";
+    const text = response.text;
+    if (!text) {
+      throw new Error("Gemini returned an empty response.");
+    }
+
+    return text.trim();
   } catch (error) {
     console.error("Gemini AI Processing Error:", error);
-    throw error;
+    if (error instanceof Error) {
+      return `Error: ${error.message}`;
+    }
+    return "Transcription failed due to an unknown error.";
   }
 }
