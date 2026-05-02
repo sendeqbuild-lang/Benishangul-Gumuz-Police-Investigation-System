@@ -4,16 +4,18 @@ let aiInstance: GoogleGenAI | null = null;
 
 function getAI() {
   if (!aiInstance) {
-    // Note: In this environment, GEMINI_API_KEY is provided via the shared session or environment.
-    // For local development or build, it uses VITE_ prefixed variables.
+    // Priority order for API Keys:
+    // 1. process.env.GEMINI_API_KEY (Set via platform Secrets)
+    // 2. VITE_ prefixed keys (Standard for client-side)
+    // 3. window fallbacks
     const apiKey = 
       (process.env as any).GEMINI_API_KEY || 
-      (process.env as any).VITE_GEMINI_API_KEY || 
       (import.meta as any).env?.VITE_GEMINI_API_KEY ||
-      (window as any).VITE_GEMINI_API_KEY;
+      (window as any).VITE_GEMINI_API_KEY ||
+      (window as any).process?.env?.GEMINI_API_KEY;
     
     if (!apiKey || apiKey.length < 10) {
-      console.warn("GEMINI_API_KEY detected as missing or invalid. Please set it in Settings > Secrets.");
+      console.error("Gemini API Key is missing. Please add it to Settings > Secrets or contact the administrator.");
     }
     
     aiInstance = new GoogleGenAI({ apiKey: apiKey || "" });
@@ -26,7 +28,7 @@ export async function processImageToText(imageBase64: string, mimeType: string) 
     const ai = getAI();
     
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-1.5-flash", // Using stable 1.5-flash for maximum compatibility
       contents: {
         parts: [
           {
@@ -75,7 +77,7 @@ export async function transcribeAndTranslateAudio(audioBase64: string, mimeType:
     const cleanedMimeType = mimeType.split(';')[0];
     
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-1.5-flash", // Using stable 1.5-flash for maximum compatibility
       contents: {
         parts: [
           {
