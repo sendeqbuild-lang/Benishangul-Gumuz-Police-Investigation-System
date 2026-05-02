@@ -6,18 +6,70 @@ function getAI() {
   if (!aiInstance) {
     // These will be replaced by Vite define during build. 
     // We prioritize VITE_ prefixed keys as they are the standard for client-side Vite.
-    const apiKey = 
-      (process.env as any).VITE_GEMINI_API_KEY || 
-      (process.env as any).GEMINI_API_KEY || 
-      (import.meta as any).env?.VITE_GEMINI_API_KEY || 
-      (window as any).VITE_GEMINI_API_KEY;
+    const envs = [
+      (process.env as any).VITE_GEMINI_API_KEY,
+      (process.env as any).GEMINI_API_KEY,
+      (import.meta as any).env?.VITE_GEMINI_API_KEY,
+      (window as any).VITE_GEMINI_API_KEY,
+      (window as any).process?.env?.GEMINI_API_KEY
+    ];
+    
+    const apiKey = envs.find(k => k && typeof k === 'string' && k.length > 10);
     
     if (!apiKey) {
-      console.warn("GEMINI_API_KEY is not set. Gemini features will not work.");
+      console.error("CRITICAL: GEMINI_API_KEY is not set in any environment variable.");
+    } else {
+      console.log("GEMINI_API_KEY detected (Length: " + apiKey.length + "). Starting AI session.");
     }
     aiInstance = new GoogleGenAI({ apiKey: apiKey || "" });
   }
   return aiInstance;
+}
+
+export async function processImageToText(imageBase64: string, mimeType: string) {
+  try {
+    const ai = getAI();
+    
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: imageBase64,
+              mimeType: mimeType,
+            },
+          },
+          {
+            text: `You are an expert OCR and document analysis system for the Benishangul-Gumuz Regional Police Commission.
+            The image provided is a document (handwritten or printed) related to a criminal investigation.
+            
+            TASK:
+            1. Extract all text from the image precisely.
+            2. Translate it into formal Amharic (አማርኛ) if it is in another language.
+            3. Organize the text clearly (preserve paragraphs, bullet points, etc.).
+            4. Preserve all names, dates, amounts, and locations.
+            
+            OUTPUT:
+            Return ONLY the final Amharic text extracted and translated from the document.`,
+          },
+        ],
+      },
+    });
+
+    const text = response.text;
+    if (!text) {
+      throw new Error("Gemini returned an empty response.");
+    }
+
+    return text.trim();
+  } catch (error) {
+    console.error("Gemini OCR Processing Error:", error);
+    if (error instanceof Error) {
+      return `Error: ${error.message}`;
+    }
+    return "OCR failed due to an unknown error.";
+  }
 }
 
 export async function transcribeAndTranslateAudio(audioBase64: string, mimeType: string, sourceLanguage: string) {
