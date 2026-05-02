@@ -4,10 +4,16 @@ let aiInstance: GoogleGenAI | null = null;
 
 function getAI() {
   if (!aiInstance) {
-    const apiKey = process.env.GEMINI_API_KEY;
+    // Vite defines process.env.GEMINI_API_KEY as a literal string replacement.
+    // If it wasn't replaced, we fall back to an empty string.
+    let apiKey = "";
+    try {
+      apiKey = process.env.GEMINI_API_KEY || "";
+    } catch (e) {
+      console.warn("process.env.GEMINI_API_KEY access failed, checking global variants.");
+    }
+
     if (!apiKey) {
-      // In development, this might happen if env vars aren't loaded yet.
-      // But we shouldn't crash at the top level.
       console.warn("GEMINI_API_KEY is not set. Gemini features will not work.");
     }
     aiInstance = new GoogleGenAI({ apiKey: apiKey || "" });
