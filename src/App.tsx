@@ -497,7 +497,16 @@ export default function App() {
   const [user, setUser] = useState<{uid: string, email: string, displayName?: string} | null>(null);
   const [loadingApp, setLoadingApp] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => setIsOffline(false));
+      window.addEventListener('offline', () => setIsOffline(true));
+    }
+  }, []);
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
 
@@ -1604,8 +1613,17 @@ export default function App() {
             <div>
               <h1 className="text-lg md:text-2xl font-black text-white tracking-tighter leading-none">{t.title}</h1>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                <p className="text-[9px] md:text-xs font-bold text-blue-100 uppercase tracking-widest leading-none">Regional Node Active</p>
+                {isOffline ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+                    <p className="text-[9px] md:text-xs font-bold text-red-100 uppercase tracking-widest leading-none">Database Offline</p>
+                  </>
+                ) : (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                    <p className="text-[9px] md:text-xs font-bold text-blue-100 uppercase tracking-widest leading-none">Regional Node Active</p>
+                  </>
+                )}
               </div>
             </div>
           </div>
