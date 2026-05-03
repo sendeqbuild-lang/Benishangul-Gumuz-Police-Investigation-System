@@ -985,6 +985,16 @@ export default function App() {
         recognition.continuous = true;
         recognition.interimResults = true;
 
+        recognition.onend = () => {
+          if (isRecording && recognitionRef.current) {
+            try {
+              recognitionRef.current.start();
+            } catch (e) {
+              console.log("Speech recognition safe-restart");
+            }
+          }
+        };
+
         recognition.onresult = (event: any) => {
           let interimText = '';
           for (let i = event.resultIndex; i < event.results.length; ++i) {
@@ -1013,22 +1023,12 @@ export default function App() {
         const blob = new Blob(audioChunksRef.current, { type: recordedMimeType });
         setRecordedBlob({ blob, mimeType: recordedMimeType });
         const finalDuration = duration;
-        setCaseStatus('Draft');
+        setCaseStatus('Processing'); // Set immediately to show quick feedback
         
-        // Save the recording and trigger high-quality AI transcription automatically
+        // Save the recording
         if (docId) {
+          // Automatic high-quality verbatim transcription happens inside saveRecording now
           await saveRecording(blob, docId, recordedMimeType, finalDuration);
-          
-          // Automatic high-quality verbatim transcription
-          const reader = new FileReader();
-          reader.readAsDataURL(blob);
-          reader.onloadend = async () => {
-            const base64 = reader.result?.toString().split(',')[1];
-            if (base64) {
-              // Trigger AI transcription without waiting for user click
-              await transcribeRecording(base64, docId, recordedMimeType, false);
-            }
-          };
         }
       };
 
