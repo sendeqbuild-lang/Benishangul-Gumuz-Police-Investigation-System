@@ -537,7 +537,13 @@ export default function App() {
   
   const [allCases, setAllCases] = useState<CaseRecord[]>([]);
   const [allStaff, setAllStaff] = useState<StaffProfile[]>([]);
-  const [systemSettings, setSystemSettings] = useState<{ policeLogo?: string, stationName?: string } | null>(null);
+  const [systemSettings, setSystemSettings] = useState<{ policeLogo?: string, stationName?: string } | null>(() => {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('police_logo_cache');
+      if (cached) return { policeLogo: cached };
+    }
+    return null;
+  });
   const [selectedCase, setSelectedCase] = useState<CaseRecord | null>(null);
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -600,7 +606,11 @@ export default function App() {
     // Fetch System Settings
     const settingsUnsubscribe = onSnapshot(doc(db, 'settings', 'global'), (doc) => {
       if (doc.exists()) {
-        setSystemSettings(doc.data() as any);
+        const data = doc.data() as any;
+        setSystemSettings(data);
+        if (data.policeLogo) {
+          localStorage.setItem('police_logo_cache', data.policeLogo);
+        }
       }
     });
 
@@ -1122,8 +1132,8 @@ export default function App() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      setError("የፋይሉ መጠን ከ 2MB መብለጥ የለበትም (Max 2MB)");
+    if (file.size > 800 * 1024) {
+      setError("የፋይሉ መጠን ከ 800KB መብለጥ የለበትም (Logo must be under 800KB for system persistence)");
       return;
     }
 
@@ -2640,6 +2650,12 @@ export default function App() {
                                     </div>
                                     <h4 className="font-bold text-sm text-slate-800 truncate mb-1">{c.intervieweeName}</h4>
                                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{c.personType} • {c.language}</p>
+                                    {c.status === 'Recording' && (
+                                      <div className="mt-2 flex items-center gap-2">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                                        <span className="text-[9px] font-black text-red-500 uppercase tracking-widest">Live Now</span>
+                                      </div>
+                                    )}
                                     <div className="absolute bottom-0 right-0 p-2 opacity-0 group-hover/item:opacity-100 transition-opacity translate-y-2 group-hover/item:translate-y-0 text-police-blue">
                                        <Eye className="w-4 h-4" />
                                     </div>
@@ -2793,12 +2809,33 @@ export default function App() {
                       
                         <div className="mb-8 p-6 bg-slate-900 rounded-3xl relative overflow-hidden group shadow-2xl">
                           {remoteStream ? (
-                            <video
-                              ref={remoteVideoRef}
-                              autoPlay
-                              playsInline
-                              className="w-full aspect-video object-cover rounded-2xl"
-                            />
+                            <div className="relative group/video">
+                              <video
+                                ref={remoteVideoRef}
+                                autoPlay
+                                playsInline
+                                className="w-full aspect-video object-cover rounded-2xl bg-black shadow-2xl"
+                              />
+                              <div className="absolute bottom-4 left-4 right-4 flex justify-between items-center z-30 opacity-100 transition-opacity">
+                                <div className="flex items-center gap-2 px-3 py-1.5 bg-black/60 backdrop-blur-md rounded-full border border-white/20">
+                                  <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                                  <span className="text-[10px] font-black text-white uppercase tracking-widest font-sans">Live Monitoring</span>
+                                </div>
+                                <div className="flex items-center gap-3 px-3 py-1.5 bg-black/60 backdrop-blur-md rounded-full border border-white/20">
+                                  <Mic className="w-3 h-3 text-white/60" />
+                                  <div className="flex gap-0.5 items-end h-3">
+                                    {[1,2,3,4,5].map(i => (
+                                      <motion.div 
+                                        key={i}
+                                        animate={{ height: [4, 12, 4] }}
+                                        transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.1 }}
+                                        className="w-0.5 bg-green-400 rounded-full"
+                                      />
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
                           ) : (
                             <>
                               <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent z-10" />
