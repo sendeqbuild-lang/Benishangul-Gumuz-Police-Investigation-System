@@ -94,20 +94,19 @@ export async function transcribeAndTranslateAudio(audioBase64: string, mimeType:
             SOURCE LANGUAGE: ${sourceLanguage}
             TARGET LANGUAGE: Amharic (አማርኛ)
             
-            CRITICAL REQUIREMENTS:
-            1. VERBATIM ACCURACY: Transcribe exactly what is said. Do not omit words, do not summarize, and do not add any information that was not spoken.
-            2. Character Integrity: Use perfect Ethiopic characters (Ge'ez) with correct grammar.
-            3. Formal Tone: Ensure the result looks like a professional police record.
-            4. Formatting: 
+            CRITICAL VERBATIM REQUIREMENTS (STRICT):
+            1. 100% VERBATIM ACCURACY: You MUST transcribe every single word exactly as it is spoken in the audio. 
+            2. ZERO SUMMARIZATION: Do NOT summarize, do NOT shorten, and do NOT paraphrase. Even if there are repetitions or stutters, transcribe it exactly to maintain legal integrity.
+            3. ZERO ADDITIONS: Do NOT add any context, thoughts, or information that is not explicitly in the audio.
+            4. FORMAL POLICE FORMAT: 
                - [መርማሪ]: For Investigator speech
                - [ቃል ሰጪ]: For Subject/Witness speech
-               - Clear paragraph breaks.
-            5. Punctuation: Use proper Ge'ez punctuation markers (።, ፣) correctly.
+            5. PUNCTUATION: Use correct Ge'ez punctuation markers (።, ፣) at appropriate grammatical breaks.
             
-            If the audio is already in Amharic, transcribe it perfectly. If it's in ${sourceLanguage}, translate it to Amharic while maintaining 100% of the original meaning.
+            If the audio is in ${sourceLanguage}, translate it to Amharic while maintaining 100% of the original content length and meaning.
             
             OUTPUT:
-            Return ONLY the final Amharic text. No extra notes.`,
+            Return ONLY the final Amharic transcription text. Do not include introductory notes, concluding remarks, or metadata.`,
           },
         ],
       },
