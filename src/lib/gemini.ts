@@ -7,12 +7,9 @@ function getAI() {
     // Priority order for API Keys:
     // 1. process.env.GEMINI_API_KEY (Set via platform Secrets)
     // 2. VITE_ prefixed keys (Standard for client-side)
-    // 3. window fallbacks
     const apiKey = 
       (process.env as any).GEMINI_API_KEY || 
-      (import.meta as any).env?.VITE_GEMINI_API_KEY ||
-      (window as any).VITE_GEMINI_API_KEY ||
-      (window as any).process?.env?.GEMINI_API_KEY;
+      (import.meta as any).env?.VITE_GEMINI_API_KEY;
     
     if (!apiKey || apiKey.length < 10) {
       console.error("Gemini API Key is missing.");
@@ -26,7 +23,7 @@ function getAI() {
 
 export async function processImageToText(imageBase64: string, mimeType: string) {
   try {
-    const ai = getAI();
+    const ai = getAI() as any;
     
     const response = await ai.models.generateContent({
       model: "gemini-1.5-flash",
@@ -40,16 +37,17 @@ export async function processImageToText(imageBase64: string, mimeType: string) 
           },
           {
             text: `You are an expert OCR and document analysis system for the Benishangul-Gumuz Regional Police Commission.
-            The image provided is a document (handwritten or printed) related to a criminal investigation.
+            The image provided is a document (handwritten or printed) related to a criminal investigation in Ethiopia.
             
             TASK:
             1. Extract all text from the image precisely.
-            2. Translate it into formal Amharic (አማርኛ) if it is in another language.
+            2. Output the result in formal, polished Amharic (አማርኛ) only. Use correct Ethiopic punctuation and characters (e.g., ፣ ፣ ።).
             3. Organize the text clearly (preserve paragraphs, bullet points, etc.).
-            4. Preserve all names, dates, amounts, and locations.
+            4. Preserve all names, dates, amounts, and locations exactly as they appear.
+            5. Ensure the text flows naturally and is grammatically perfect in Amharic.
             
             OUTPUT:
-            Return ONLY the final Amharic text extracted and translated from the document.`,
+            Return ONLY the final Amharic text. Do not include any introductory or concluding remarks.`,
           },
         ],
       },
@@ -74,7 +72,7 @@ export async function processImageToText(imageBase64: string, mimeType: string) 
 
 export async function transcribeAndTranslateAudio(audioBase64: string, mimeType: string, sourceLanguage: string) {
   try {
-    const ai = getAI();
+    const ai = getAI() as any;
     
     // Clean mimeType: Gemini expects basic types like "audio/webm", not "audio/webm;codecs=opus"
     const cleanedMimeType = mimeType.split(';')[0];
@@ -90,21 +88,25 @@ export async function transcribeAndTranslateAudio(audioBase64: string, mimeType:
             },
           },
           {
-            text: `You are an expert transcriber and translator for the Benishangul-Gumuz Regional Police Commission in Ethiopia. 
-            The audio provided is an official police statement.
+            text: `You are a high-level official state transcriber for the Benishangul-Gumuz Regional Police Commission.
+            The audio provided is a formal police statement or interview.
             
             SOURCE LANGUAGE: ${sourceLanguage}
             TARGET LANGUAGE: Amharic (አማርኛ)
             
-            TASKS:
-            1. Transcribe the audio precisely as spoken.
-            2. If the source language is NOT Amharic, translate it into formal, accurate Amharic. If it IS Amharic, provide the polished transcription.
-            3. Ensure the tone is objective and formal, suitable for a regional police node report.
-            4. Preserve all names, dates, amounts, and locations exactly.
-            5. If there are multiple speakers, label them (e.g., [መርማሪ], [ቃል ሰጪ]).
+            CRITICAL REQUIREMENTS:
+            1. Accurate Transliteration: Convert names and specific locations to their correct Amharic spelling.
+            2. Formal Tone: Use formal Amharic sentence structures (e.g., "አስረድተዋል" instead of "ተናገረ").
+            3. Accuracy: Transcribe every word. Do not summarize unless there is long silence.
+            4. Formatting: 
+               - [መርማሪ]: For Investigator speech
+               - [ቃል ሰጪ]: For Subject/Witness speech
+               - Clear paragraph breaks for different topics.
+            5. Ethiopic Punctuation: Use proper Ge'ez punctuation markers (።, ፣) correctly.
+            6. Character Integrity: Use the most standard Amharic font-compatible Ethiopic characters. No broken or missing letters.
             
             OUTPUT:
-            Return ONLY the final Amharic text. Do not include any introductory or concluding remarks.`,
+            Return ONLY the final Amharic text. Do not include explanations, thoughts, or metadata.`,
           },
         ],
       },
