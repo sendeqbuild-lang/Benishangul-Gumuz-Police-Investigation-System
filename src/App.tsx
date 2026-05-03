@@ -1015,9 +1015,20 @@ export default function App() {
         const finalDuration = duration;
         setCaseStatus('Draft');
         
-        // Save the recording to the case file
+        // Save the recording and trigger high-quality AI transcription automatically
         if (docId) {
           await saveRecording(blob, docId, recordedMimeType, finalDuration);
+          
+          // Automatic high-quality verbatim transcription
+          const reader = new FileReader();
+          reader.readAsDataURL(blob);
+          reader.onloadend = async () => {
+            const base64 = reader.result?.toString().split(',')[1];
+            if (base64) {
+              // Trigger AI transcription without waiting for user click
+              await transcribeRecording(base64, docId, recordedMimeType, false);
+            }
+          };
         }
       };
 
