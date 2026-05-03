@@ -1,10 +1,36 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInAnonymously } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer, collection, addDoc, updateDoc, onSnapshot, query, orderBy, serverTimestamp, setDoc } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { 
+  getFirestore, 
+  initializeFirestore,
+  doc, 
+  getDocFromServer, 
+  collection, 
+  addDoc, 
+  updateDoc, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  serverTimestamp, 
+  setDoc 
+} from 'firebase/firestore';
+import firebaseConfigRaw from '../../firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Allow overriding via environment variables for "hidden" management
+const firebaseConfig = {
+  ...firebaseConfigRaw,
+  apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY || firebaseConfigRaw.apiKey,
+  projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID || firebaseConfigRaw.projectId,
+  appId: (import.meta as any).env.VITE_FIREBASE_APP_ID || firebaseConfigRaw.appId,
+};
+
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+
+// Use initializeFirestore to enable experimentalForceLongPolling for better reachability
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+}, firebaseConfig.firestoreDatabaseId || '(default)');
+
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
