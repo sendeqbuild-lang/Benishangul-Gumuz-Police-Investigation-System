@@ -26,7 +26,7 @@ export async function processImageToText(imageBase64: string, mimeType: string) 
     const ai = getAI() as any;
     
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemini-3-flash-preview",
       contents: {
         parts: [
           {
@@ -78,7 +78,7 @@ export async function transcribeAndTranslateAudio(audioBase64: string, mimeType:
     const cleanedMimeType = mimeType.split(';')[0];
     
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemini-3-flash-preview",
       contents: {
         parts: [
           {
@@ -95,18 +95,19 @@ export async function transcribeAndTranslateAudio(audioBase64: string, mimeType:
             TARGET LANGUAGE: Amharic (አማርኛ)
             
             CRITICAL REQUIREMENTS:
-            1. Accurate Transliteration: Convert names and specific locations to their correct Amharic spelling.
-            2. Formal Tone: Use formal Amharic sentence structures (e.g., "አስረድተዋል" instead of "ተናገረ").
-            3. Accuracy: Transcribe every word. Do not summarize unless there is long silence.
+            1. VERBATIM ACCURACY: Transcribe exactly what is said. Do not omit words, do not summarize, and do not add any information that was not spoken.
+            2. Character Integrity: Use perfect Ethiopic characters (Ge'ez) with correct grammar.
+            3. Formal Tone: Ensure the result looks like a professional police record.
             4. Formatting: 
                - [መርማሪ]: For Investigator speech
                - [ቃል ሰጪ]: For Subject/Witness speech
-               - Clear paragraph breaks for different topics.
-            5. Ethiopic Punctuation: Use proper Ge'ez punctuation markers (።, ፣) correctly.
-            6. Character Integrity: Use the most standard Amharic font-compatible Ethiopic characters. No broken or missing letters.
+               - Clear paragraph breaks.
+            5. Punctuation: Use proper Ge'ez punctuation markers (።, ፣) correctly.
+            
+            If the audio is already in Amharic, transcribe it perfectly. If it's in ${sourceLanguage}, translate it to Amharic while maintaining 100% of the original meaning.
             
             OUTPUT:
-            Return ONLY the final Amharic text. Do not include explanations, thoughts, or metadata.`,
+            Return ONLY the final Amharic text. No extra notes.`,
           },
         ],
       },
