@@ -648,7 +648,18 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       if (u) {
         setUser({ uid: u.uid, email: u.email || '', displayName: u.displayName || '' });
-        setIsAdmin(u.email === 'sendeqbuild@gmail.com');
+        
+        // Initial quick check for main dev email
+        const isMainAdmin = u.email === 'sendeqbuild@gmail.com';
+        setIsAdmin(isMainAdmin);
+        
+        // Deep check for role
+        getDoc(doc(db, 'users', u.uid)).then(userDoc => {
+          if (userDoc.exists() && userDoc.data()?.userType === 'Admin') {
+            setIsAdmin(true);
+          }
+        }).catch(() => {});
+
         setCaseInfo(prev => ({ ...prev, detectiveName: u.displayName || '' }));
       } else {
         setUser(null);
@@ -1157,18 +1168,33 @@ export default function App() {
   };
 
   const base64ToBlob = (base64: string, mimeType: string) => {
-    const byteCharacters = atob(base64);
-    const byteArrays = [];
-    for (let offset = 0; offset < byteCharacters.length; offset += 512) {
-      const slice = byteCharacters.slice(offset, offset + 512);
-      const byteNumbers = new Array(slice.length);
-      for (let i = 0; i < slice.length; i++) {
-        byteNumbers[i] = slice.charCodeAt(i);
+    try {
+      // Safety: Strip data URL prefix if present
+      const cleanBase64 = base64.includes(',') ? base64.split(',')[1] : base64;
+      
+      // Safety: Strip whitespace
+      const finalBase64 = cleanBase64.trim();
+      
+      if (!finalBase64) {
+        throw new Error("Empty base64 string");
       }
-      const byteArray = new Uint8Array(byteNumbers);
-      byteArrays.push(byteArray);
+
+      const byteCharacters = atob(finalBase64);
+      const byteArrays = [];
+      for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+        const slice = byteCharacters.slice(offset, offset + 512);
+        const byteNumbers = new Array(slice.length);
+        for (let i = 0; i < slice.length; i++) {
+          byteNumbers[i] = slice.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        byteArrays.push(byteArray);
+      }
+      return new Blob(byteArrays, { type: mimeType });
+    } catch (e) {
+      console.error("base64ToBlob error:", e);
+      return new Blob([], { type: mimeType });
     }
-    return new Blob(byteArrays, { type: mimeType });
   };
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1391,9 +1417,15 @@ export default function App() {
         const reader = new FileReader();
         reader.readAsDataURL(blob);
         reader.onloadend = () => {
-          const base64 = reader.result?.toString().split(',')[1];
-          if (base64) resolve(base64);
-          else reject(new Error("Failed to convert audio to base64"));
+          const result = reader.result?.toString() || '';
+          // Robustly get the data part of the data URL
+          const commaIndex = result.indexOf(',');
+          if (commaIndex !== -1) {
+            resolve(result.substring(commaIndex + 1));
+          } else {
+            // Some environments might just return the base64? Unlikely but safe.
+            resolve(result);
+          }
         };
         reader.onerror = () => reject(reader.error);
       });
