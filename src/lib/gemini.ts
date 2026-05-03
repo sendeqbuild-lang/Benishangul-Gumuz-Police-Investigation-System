@@ -26,7 +26,7 @@ export async function processImageToText(imageBase64: string, mimeType: string) 
     const ai = getAI() as any;
     
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-3-flash-preview",
       contents: {
         parts: [
           {
@@ -78,7 +78,7 @@ export async function transcribeAndTranslateAudio(audioBase64: string, mimeType:
     const cleanedMimeType = mimeType.split(';')[0];
     
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-3-flash-preview",
       contents: {
         parts: [
           {
