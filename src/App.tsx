@@ -1164,16 +1164,43 @@ export default function App() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 800 * 1024) {
-      setError("የፋይሉ መጠን ከ 800KB መብለጥ የለበትም (Logo must be under 800KB for system persistence)");
-      return;
-    }
-
     setIsProcessing(true);
     try {
+      // Create a canvas to resize the image
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => resolve(reader.result?.toString() || '');
+        reader.onload = (event) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            
+            // Max dimensions 400x400 for logo
+            const MAX_SIZE = 400;
+            if (width > height) {
+              if (width > MAX_SIZE) {
+                height *= MAX_SIZE / width;
+                width = MAX_SIZE;
+              }
+            } else {
+              if (height > MAX_SIZE) {
+                width *= MAX_SIZE / height;
+                height = MAX_SIZE;
+              }
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx?.drawImage(img, 0, 0, width, height);
+            
+            // Compress as JPEG with 0.8 quality
+            resolve(canvas.toDataURL('image/jpeg', 0.8));
+          };
+          img.onerror = reject;
+          img.src = event.target?.result as string;
+        };
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
@@ -1186,6 +1213,7 @@ export default function App() {
 
       setShowSuccessToast(true);
       setTimeout(() => setShowSuccessToast(false), 3000);
+      setError(null);
     } catch (err) {
       console.error("Logo upload error:", err);
       setError("ሎጎውን መጫን አልተቻለም። (Failed to upload logo)");
