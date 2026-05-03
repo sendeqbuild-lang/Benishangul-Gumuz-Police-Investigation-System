@@ -35,14 +35,14 @@ service cloud.firestore {
     }
 
     match /cases/{caseId} {
-      allow read: if (isSignedIn() && (isAdmin() || isOwner(resource.data))) || 
-                  (resource.data.status == 'Finalized');
-      allow create: if isSignedIn() && isValidCase(request.resource.data);
-      allow update: if isSignedIn() && (
-        (isOwner(resource.data) && resource.data.status != 'Finalized' && isValidCase(request.resource.data)) ||
-        isAdmin()
-      );
+      allow read: if isSignedIn() && (isAdmin() || isOwner(resource.data) || resource.data.status == 'Finalized');
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (isAdmin() || isOwner(resource.data));
       allow delete: if isAdmin();
+
+      match /signals/{signalId} {
+        allow read, write: if isSignedIn();
+      }
     }
 
     match /settings/{id} {
