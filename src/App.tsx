@@ -26,6 +26,7 @@ import {
   ShieldCheck,
   Fingerprint,
   Zap,
+  Play,
   Lock,
   BarChart4,
   PieChart,
@@ -562,6 +563,27 @@ export default function App() {
   const [activeReportFilter, setActiveReportFilter] = useState<{type: string, value: string} | null>(null);
   const [cameraFacingMode, setCameraFacingMode] = useState<'user' | 'environment'>('environment');
   const [recordedBlob, setRecordedBlob] = useState<{blob: Blob, mimeType: string} | null>(null);
+  const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
+  const [previewAudioId, setPreviewAudioId] = useState<string | null>(null);
+  const [previewAudioUrl, setPreviewAudioUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (recordedBlob) {
+      const url = URL.createObjectURL(recordedBlob.blob);
+      setRecordedUrl(url);
+      return () => URL.revokeObjectURL(url);
+    } else {
+      setRecordedUrl(null);
+    }
+  }, [recordedBlob]);
+
+  const playHistoricalRecording = (rec: any) => {
+    if (previewAudioUrl) URL.revokeObjectURL(previewAudioUrl);
+    const blob = base64ToBlob(rec.data, rec.mimeType);
+    const url = URL.createObjectURL(blob);
+    setPreviewAudioUrl(url);
+    setPreviewAudioId(rec.id);
+  };
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedMicId, setSelectedMicId] = useState<string>('');
 
@@ -2185,8 +2207,19 @@ export default function App() {
                       <p className="text-xs text-slate-400 text-center font-ethiopic">የምርመራ ሰነዶችን ፎቶ በማንሳት ወይም ፋይል በመጫን ወደ ፅሁፍ ይቀይሩ። (Upload or snap document to convert to text)</p>
                    </div>
                 )}
-                <div className="p-6 bg-slate-900 text-white text-center">
-                  <div className="text-4xl font-mono mb-6">{caseInfo.recordingMode === 'Document' ? 'DOCUMENT OCR' : formatTime(duration)}</div>
+                <div className="p-6 bg-slate-900 text-white text-center border-t border-white/5">
+                  <div className="text-4xl font-mono mb-4">{caseInfo.recordingMode === 'Document' ? 'DOCUMENT OCR' : formatTime(duration)}</div>
+                  
+                  {recordedUrl && !isRecording && (
+                    <div className="mb-6 p-4 bg-white/5 rounded-2xl border border-white/10">
+                      <p className="text-[10px] font-black text-blue-300 uppercase tracking-widest mb-3 flex items-center justify-center gap-2">
+                        <Play className="w-3 h-3" />
+                        Listen to Recording (ቀረጻውን ያዳምጡ)
+                      </p>
+                      <audio controls src={recordedUrl} className="w-full h-8 opacity-80" />
+                    </div>
+                  )}
+
                   <div className="flex flex-col gap-4">
                     {/* Mic Selection (Always visible in Audio/Video modes) */}
                     {caseInfo.recordingMode !== 'Document' && (
@@ -2569,22 +2602,38 @@ export default function App() {
                                     <p className="text-[9px] text-slate-400 font-mono tracking-tight">{formatTime(rec.duration)}</p>
                                   </div>
                                 </div>
-                                <button
-                                  onClick={() => {
-                                    const blob = base64ToBlob(rec.data, rec.mimeType);
-                                    const url = URL.createObjectURL(blob);
-                                    const a = document.createElement('a');
-                                    a.href = url;
-                                    a.download = `${rec.name}.${rec.mimeType.includes('video') ? 'webm' : 'webm'}`;
-                                    a.click();
-                                    setTimeout(() => URL.revokeObjectURL(url), 100);
-                                  }}
-                                  className="p-1.5 hover:bg-police-blue hover:text-white text-slate-300 rounded-md transition-all"
-                                  title="Download File"
-                                >
-                                  <Download className="w-3.5 h-3.5" />
-                                </button>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => playHistoricalRecording(rec)}
+                                    className={`p-1.5 rounded-md transition-all ${previewAudioId === rec.id ? 'bg-police-blue text-white' : 'hover:bg-blue-50 text-blue-600'}`}
+                                    title="Listen Inline"
+                                  >
+                                    <Play className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const blob = base64ToBlob(rec.data, rec.mimeType);
+                                      const url = URL.createObjectURL(blob);
+                                      const a = document.createElement('a');
+                                      a.href = url;
+                                      a.download = `${rec.name}.${rec.mimeType.includes('video') ? 'webm' : 'webm'}`;
+                                      a.click();
+                                      setTimeout(() => URL.revokeObjectURL(url), 100);
+                                    }}
+                                    className="p-1.5 hover:bg-police-blue hover:text-white text-slate-300 rounded-md transition-all"
+                                    title="Download File"
+                                  >
+                                    <Download className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </div>
+                              
+                              {previewAudioId === rec.id && previewAudioUrl && (
+                                <div className="animate-in fade-in slide-in-from-top-1 duration-300">
+                                   <audio controls src={previewAudioUrl} autoPlay className="w-full h-8" />
+                                </div>
+                              )}
+
                               <div className="h-px bg-slate-50 w-full" />
                               <button 
                                 onClick={() => transcribeRecording(rec.data, currentCase.id, rec.mimeType)}
