@@ -1690,11 +1690,15 @@ export default function App() {
                   onClick={() => { 
                     if (mode !== 'Investigator') setMode('Investigator'); 
                     else if (selectedCase) setSelectedCase(null); 
-                    else if (currentCaseDocId) setCurrentCaseDocId(null);
+                    else if (currentCaseDocId) {
+                      setCurrentCaseDocId(null);
+                      setCaseStatus('Initial');
+                    }
                   }}
-                  className={`p-2 bg-white/10 rounded-xl md:hidden ${(mode === 'Investigator' && !selectedCase && !currentCaseDocId) ? 'hidden' : 'block'}`}
+                  className={`p-2 bg-white/10 hover:bg-white/20 rounded-xl transition-all ${(mode === 'Investigator' && !selectedCase && (caseStatus === 'Initial' || !currentCaseDocId)) ? 'hidden' : 'block'}`}
+                  title={t.back}
                 >
-                  <ChevronLeft className="w-5 h-5 text-white" />
+                  <ChevronLeft className="w-5 h-5 md:w-6 md:h-6 text-white" />
                 </button>
             <div className="w-10 h-10 md:w-12 md:h-12 bg-white rounded-2xl flex items-center justify-center shadow-lg transform -rotate-3 border-2 border-police-blue/20 overflow-hidden">
               {systemSettings?.policeLogo ? (
@@ -2637,12 +2641,39 @@ export default function App() {
                   </AnimatePresence>
                   <textarea 
                     ref={textareaRef}
-                    className="w-full h-full resize-none border-none focus:ring-0 text-xl md:text-2xl leading-relaxed font-ethiopic text-slate-800 placeholder:text-slate-200"
+                    id="transcription-textarea"
+                    className="w-full h-full resize-none border-none focus:ring-0 text-xl md:text-2xl leading-relaxed font-ethiopic text-slate-800 placeholder:text-slate-200 scroll-smooth"
                     value={transcription}
                     onChange={(e) => setTranscription(e.target.value)}
                     readOnly={caseStatus === 'Finalized'}
                     placeholder={t.placeholder}
                   />
+                  
+                  {/* Spatial Navigation Helpers (Up, Down, Left, Right feel) */}
+                  <div className="absolute bottom-6 right-6 flex flex-col gap-2 no-print">
+                      <button 
+                        onClick={() => {
+                          const el = document.getElementById('transcription-textarea');
+                          if (el) el.scrollTop = 0;
+                        }}
+                        className="w-12 h-12 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center shadow-lg hover:bg-slate-50 transition-all text-slate-400 hover:text-police-blue group"
+                        title="Scroll to Top"
+                      >
+                        <ChevronLeft className="w-6 h-6 rotate-90" />
+                        <span className="absolute right-full mr-2 px-2 py-1 bg-slate-800 text-white text-[9px] rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">ወደ ላይ</span>
+                      </button>
+                      <button 
+                        onClick={() => {
+                          const el = document.getElementById('transcription-textarea');
+                          if (el) el.scrollTop = el.scrollHeight;
+                        }}
+                        className="w-12 h-12 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center shadow-lg hover:bg-slate-50 transition-all text-slate-400 hover:text-police-blue group"
+                        title="Scroll to Bottom"
+                      >
+                        <ChevronLeft className="w-6 h-6 -rotate-90" />
+                        <span className="absolute right-full mr-2 px-2 py-1 bg-slate-800 text-white text-[9px] rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">ወደ ታች</span>
+                      </button>
+                  </div>
                   {caseStatus === 'Finalized' && (
                     <div className="absolute top-4 right-4 bg-amber-50 text-amber-700 text-[10px] font-bold px-3 py-1.5 rounded-full border border-amber-200 shadow-sm">
                       {t.locked}
@@ -2772,7 +2803,8 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 gap-6">
-              <div className="card h-[75vh] overflow-y-auto shadow-xl bg-white p-2">
+              <div className="card h-[75vh] overflow-y-auto overflow-x-auto shadow-xl bg-white p-2">
+                <div className="min-w-[800px]"> {/* Ensure horizontal scroll on small screens */}
                 {supervisorGroupByDetective ? (
                   /* Grouped View */
                   <div className="space-y-6 p-4">
@@ -2926,6 +2958,7 @@ export default function App() {
                     </tbody>
                   </table>
                 )}
+                </div>
               </div>
             </div>
 
