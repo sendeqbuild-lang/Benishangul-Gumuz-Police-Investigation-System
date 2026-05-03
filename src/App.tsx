@@ -720,7 +720,8 @@ export default function App() {
     const matchesSearch = (
       c.caseId.toLowerCase().includes(s) || 
       c.intervieweeName.toLowerCase().includes(s) ||
-      c.detectiveName.toLowerCase().includes(s)
+      c.detectiveName.toLowerCase().includes(s) ||
+      (s.length > 3 && c.transcription?.toLowerCase().includes(s))
     );
     
     if (!activeReportFilter || activeReportFilter.type === 'all') return matchesSearch;
@@ -2285,54 +2286,76 @@ export default function App() {
 
               {/* Investigator's My Case Archives */}
               <div className="card overflow-hidden">
-                <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex justify-between items-center">
-                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                    <Archive className="w-4 h-4" />
-                    {t.myArchives}
-                  </h3>
-                  <div className="p-1 bg-white rounded-lg border border-slate-200">
-                    <Search className="w-3 h-3 text-slate-300" />
+                <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex flex-col gap-3">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                      <History className="w-4 h-4" />
+                      {t.myArchives} (Folders)
+                    </h3>
+                  </div>
+                  <div className="relative group">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 group-focus-within:text-police-blue transition-colors" />
+                    <input 
+                      type="text" 
+                      placeholder={t.search} 
+                      className="w-full bg-white border-2 border-slate-100 rounded-xl py-2 pl-9 pr-4 text-xs focus:border-police-blue focus:ring-0 transition-all placeholder:text-slate-300 font-ethiopic"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
                   </div>
                 </div>
                 
-                <div className="p-4 space-y-3 max-h-[500px] overflow-y-auto custom-scrollbar bg-white/50">
-                  {isMounted && filteredCases.filter(c => c.investigatorEmail === user?.email).map(c => (
-                    <div 
-                      key={c.id}
-                      onClick={() => selectCaseForEditing(c)}
-                      className={`group relative flex items-center gap-4 p-4 rounded-2xl border-2 transition-all cursor-pointer ${
-                        currentCaseDocId === c.id ? 'border-police-blue bg-blue-50/50 shadow-md translate-x-1' : 'border-slate-50 hover:border-slate-200 hover:bg-slate-50'
-                      }`}
-                    >
-                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${c.status === 'Finalized' ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600 shadow-sm'}`}>
-                        <Archive className="w-6 h-6" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex justify-between items-start mb-0.5">
-                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{c.caseId}</span>
-                          <span className="text-[8px] text-slate-400">{c.updatedAt?.toDate?.()?.toLocaleDateString()}</span>
-                        </div>
-                        <p className="text-xs font-black text-slate-800 truncate leading-none mb-1">{c.intervieweeName || "Pending Subject"}</p>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[8px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${
-                            c.status === 'Finalized' ? 'bg-green-200 text-green-800 border border-green-300' : 
-                            c.status === 'Recording' ? 'bg-red-100 text-red-600 border border-red-200 animate-pulse' :
-                            'bg-amber-100 text-amber-800 border border-amber-200'
-                          }`}>
-                            {c.status}
+                <div className="p-0 overflow-y-auto max-h-[600px] bg-white divide-y divide-slate-50">
+                  {['Recording', 'Draft', 'Finalized'].map(folderStatus => {
+                    const statusCases = filteredCases.filter(c => c.investigatorEmail === user?.email && c.status === folderStatus);
+                    if (statusCases.length === 0) return null;
+                    
+                    return (
+                      <div key={folderStatus} className="bg-white">
+                        <div className="bg-slate-50/80 px-4 py-2 flex items-center gap-2 border-y border-slate-100 first:border-t-0">
+                          <Archive className={`w-3.5 h-3.5 ${
+                            folderStatus === 'Finalized' ? 'text-green-500' : 
+                            folderStatus === 'Recording' ? 'text-red-500' : 'text-amber-500'
+                          }`} />
+                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                            {folderStatus} Folders ({statusCases.length})
                           </span>
-                          <span className="text-[8px] font-bold text-slate-400 uppercase">{c.language}</span>
+                        </div>
+                        <div className="p-2 space-y-1">
+                          {statusCases.map(c => (
+                            <div 
+                              key={c.id}
+                              onClick={() => selectCaseForEditing(c)}
+                              className={`group flex items-center gap-3 p-3 rounded-xl transition-all cursor-pointer border-2 ${
+                                currentCaseDocId === c.id ? 'border-police-blue bg-blue-50/50' : 'border-transparent hover:bg-slate-50'
+                              }`}
+                            >
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                                folderStatus === 'Finalized' ? 'bg-green-100 text-green-600' : 
+                                folderStatus === 'Recording' ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-amber-100 text-amber-600'
+                              }`}>
+                                <FileText className="w-4 h-4" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[11px] font-black text-slate-800 truncate leading-none mb-1">{c.intervieweeName || "Pending Subject"}</p>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{c.caseId}</span>
+                                  <span className="text-[7px] text-slate-400 font-mono tracking-tighter">
+                                    {c.updatedAt?.toDate?.()?.toLocaleDateString() || new Date().toLocaleDateString()}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
-                      <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                         <ChevronRight className="w-4 h-4 text-police-blue" />
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
+                  
                   {filteredCases.filter(c => c.investigatorEmail === user?.email).length === 0 && (
-                    <div className="text-center py-10 opacity-40">
-                      <FileX className="w-10 h-10 mx-auto mb-2" />
-                      <p className="text-xs font-bold uppercase tracking-widest">No local files found</p>
+                    <div className="text-center py-20 opacity-30">
+                      <FileSearch className="w-12 h-12 mx-auto mb-3" />
+                      <p className="text-[10px] font-black uppercase tracking-widest">{t.noHistory}</p>
                     </div>
                   )}
                 </div>
@@ -2430,12 +2453,25 @@ export default function App() {
                         {t.saveDraft}
                       </button>
                     )}
+                    {currentCaseDocId && (
+                      <button 
+                        onClick={() => {
+                          setActivePrintId('case');
+                          setTimeout(() => window.print(), 100);
+                        }}
+                        className="btn-secondary py-2 px-4 text-[10px] uppercase bg-slate-100 text-slate-700 border-slate-200"
+                        title="Print Transcript Only"
+                      >
+                        <Printer className="w-4 h-4" />
+                        Print
+                      </button>
+                    )}
                     <button 
                       onClick={finalizeAndPrint} 
                       disabled={!transcription || caseStatus === 'Recording'} 
                       className="btn-primary py-2 px-4 shadow-none text-[10px] uppercase transition-all active:scale-95"
                     >
-                      <Printer className="w-4 h-4" />
+                      <ShieldCheck className="w-4 h-4" />
                       {t.finalize}
                     </button>
                   </div>
